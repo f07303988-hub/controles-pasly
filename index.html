@@ -1,0 +1,2438 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1B2B48">
+<title>Contrôles périodiques – Pasly</title>
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<meta name="apple-mobile-web-app-title" content="Contrôles">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --encre:#1B2B48; --texte:#25314A; --doux:#5B6780; --papier:#EDF1F6; --carte:#FFFFFF; --ligne:#D2D9E3;
+  --accent:#24539E; --accent-texte:#FFFFFF;
+  --retard:#B3261E; --retard-fond:#FBE8E6;
+  --bientot:#A86200; --bientot-fond:#FFF2D9;
+  --ok:#2B6E46; --ok-fond:#E3F2E8;
+  --planifier:#5B4BA8; --planifier-fond:#ECE9F8;
+  --aucun:#8A94A6;
+  --texte-police:'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --titre-police:'Barlow Condensed', 'Arial Narrow', 'Roboto Condensed', system-ui, sans-serif;
+  --rayon:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --encre:#0F1A2E; --texte:#E3E8F1; --doux:#9EA9BD; --papier:#141C2B; --carte:#1D2738; --ligne:#2F3B50;
+    --accent:#6F9BE6; --accent-texte:#0F1A2E;
+    --retard:#E06A5F; --retard-fond:#3A1F1E;
+    --bientot:#E3A43A; --bientot-fond:#3A2D14;
+    --ok:#5DBA84; --ok-fond:#183224;
+    --planifier:#A99BEB; --planifier-fond:#272340;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--texte-police);font-size:16px;line-height:1.45;color:var(--texte);background:var(--papier);-webkit-text-size-adjust:100%}
+body.bloque{overflow:hidden}
+h1,h2,h3{font-family:var(--titre-police);line-height:1.1;margin:0;color:var(--texte)}
+h1{font-size:1.9rem;font-weight:700}
+h2{font-size:1.4rem;font-weight:600;margin:1.6rem 0 .6rem}
+h3{font-size:1.2rem;font-weight:600}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+/* Barre du haut */
+.barre{position:sticky;top:0;z-index:5;background:var(--encre);color:#fff;padding:calc(env(safe-area-inset-top,0px) + 10px) 16px 10px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.barre .titre{font-family:var(--titre-police);font-size:1.35rem;font-weight:700;line-height:1}
+.barre .titre small{display:block;font-family:var(--texte-police);font-size:.78rem;font-weight:400;opacity:.75;margin-top:3px}
+.icone-btn{background:none;border:0;color:inherit;padding:8px;border-radius:8px;cursor:pointer;display:flex}
+svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+main{max-width:760px;margin:0 auto;padding:16px 16px calc(96px + env(safe-area-inset-bottom,0px))}
+
+/* Navigation du bas */
+.onglets{position:fixed;left:0;right:0;bottom:0;z-index:5;display:grid;grid-template-columns:repeat(5,1fr);background:var(--carte);border-top:1px solid var(--ligne);padding-bottom:env(safe-area-inset-bottom,0px)}
+.onglets button{background:none;border:0;padding:8px 1px 9px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:.7rem;min-width:0;color:var(--doux);cursor:pointer;position:relative}
+.onglets button.actif{color:var(--accent);font-weight:700}
+.onglets .nb{position:absolute;top:4px;left:calc(50% + 6px);background:var(--retard);color:#fff;border-radius:9px;font-size:.68rem;padding:0 5px;min-width:18px;line-height:18px}
+body.deconnecte .onglets, body.deconnecte #btnActualiser{display:none}
+
+/* Boutons */
+.principal,.secondaire,.danger,.petit{border-radius:8px;border:1px solid transparent;padding:11px 16px;cursor:pointer;font-weight:700}
+.principal{background:var(--accent);color:var(--accent-texte)}
+.secondaire{background:transparent;border-color:var(--ligne);color:var(--texte)}
+.danger{background:transparent;border-color:var(--retard);color:var(--retard)}
+.petit{padding:7px 12px;font-size:.9rem}
+.petit:not(.secondaire):not(.principal):not(.danger){background:var(--accent);color:var(--accent-texte)}
+.lien{background:none;border:0;color:var(--accent);padding:6px 0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.lien.danger{color:var(--retard);border:0}
+button:disabled{opacity:.55;cursor:wait}
+
+/* Compteurs */
+.compteurs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px}
+@media (min-width:640px){.compteurs{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.s-reserves{--c:#9A3412;--fond:#FDEDE4}
+@media (prefers-color-scheme: dark){.s-reserves{--c:#F09A6C;--fond:#3A2418}}
+.compteur .voir{display:block;margin-top:8px;font-size:.8rem;font-weight:700;text-decoration:underline;text-underline-offset:3px}
+.s-periode{--c:var(--accent);--fond:color-mix(in srgb,var(--accent) 10%,var(--carte))}
+.compteur{border:2px solid transparent;border-radius:var(--rayon);padding:10px 10px;min-height:72px;text-align:left;cursor:pointer;background:var(--fond);color:var(--c)}
+.compteur b{display:block;font-family:var(--titre-police);font-size:2.2rem;line-height:1}
+.compteur span{font-size:.82rem;font-weight:700;line-height:1.2;display:block}
+.compteur.actif{border-color:var(--c);box-shadow:inset 0 0 0 1px var(--c)}
+.s-retard{--c:var(--retard);--fond:var(--retard-fond)}
+.s-bientot{--c:var(--bientot);--fond:var(--bientot-fond)}
+.s-ok{--c:var(--ok);--fond:var(--ok-fond)}
+.s-planifier{--c:var(--planifier);--fond:var(--planifier-fond)}
+.s-aucun{--c:var(--aucun);--fond:var(--papier)}
+
+.filtre{width:100%;padding:10px 12px;border:1px solid var(--ligne);border-radius:8px;background:var(--carte)}
+#resultats{scroll-margin-top:calc(70px + env(safe-area-inset-top,0px))}
+.maj{margin:0 0 10px;font-size:.85rem;color:var(--doux)}
+.maj.erreur{color:var(--retard);font-weight:700}
+.maj .lien{font-size:.85rem;padding:0 0 0 4px}
+.recherche{position:relative}
+.recherche input{width:100%;padding-right:96px !important}
+.recherche .effacer{position:absolute;right:4px;top:50%;transform:translateY(-50%);min-height:38px;padding:6px 10px;border:0;border-radius:6px;background:var(--papier);cursor:pointer;font-size:.85rem;font-weight:700}
+.etiquette{display:inline-block;align-self:flex-start;font-size:.75rem;font-weight:700;color:var(--c);border:1px solid var(--c);border-radius:4px;padding:0 6px;line-height:1.5;white-space:nowrap}
+details.filtres{background:var(--carte);border:1px solid var(--ligne);border-radius:var(--rayon);padding:10px 12px;margin:10px 0 0}
+details.filtres summary{font-weight:700;cursor:pointer;list-style-position:inside}
+details.filtres summary span{color:var(--accent);margin-left:6px}
+.grille-filtres{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.grille-filtres label{font-size:.85rem}
+.grille-filtres label{min-width:0}
+.grille-filtres select{min-height:44px;padding:8px;max-width:100%}
+@media (max-width:420px){.grille-filtres{grid-template-columns:1fr}}
+.bilan{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;color:var(--doux);font-size:.92rem}
+
+/* Étiquettes d'échéance */
+.liste{display:grid;gap:10px}
+.tag{display:grid;grid-template-columns:86px 1fr;background:var(--carte);border:1px solid var(--ligne);border-radius:var(--rayon);overflow:hidden;cursor:pointer}
+.talon{position:relative;background:var(--c);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:22px 6px 12px;border-right:2px dashed var(--carte)}
+.talon::before{content:"";position:absolute;top:9px;left:50%;width:10px;height:10px;margin-left:-5px;border-radius:50%;background:var(--carte)}
+.talon .j{font-family:var(--titre-police);font-size:2.5rem;font-weight:700;line-height:.95}
+.talon .m{font-size:.8rem;line-height:1.2}
+.s-retard .talon,.s-bientot .talon,.s-ok .talon,.s-planifier .talon{color:#fff}
+@media (prefers-color-scheme: dark){ .talon{color:#0F1A2E !important} }
+.corps{padding:12px 14px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.corps h3{font-size:1.15rem}
+.sous{margin:0;color:var(--doux);font-size:.92rem}
+.meta{margin:0;font-size:.9rem}
+.meta strong{color:var(--c)}
+.alerte{margin:0;color:var(--retard);font-weight:700;font-size:.88rem}
+.leve{margin:0;color:var(--ok);font-size:.88rem}
+.corps .petit{align-self:flex-start;margin-top:6px}
+
+.vide{background:var(--carte);border:1px dashed var(--ligne);border-radius:var(--rayon);padding:18px;color:var(--doux);margin:8px 0}
+.chargement{color:var(--doux);padding:24px 0}
+.entete-vue{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px}
+
+/* Lignes d'équipements */
+.lignes{list-style:none;margin:0;padding:0;background:var(--carte);border:1px solid var(--ligne);border-radius:var(--rayon);overflow:hidden}
+.lignes li{display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--ligne);cursor:pointer}
+.lignes li:first-child{border-top:0}
+.lignes li div{flex:1;min-width:0}
+.lignes small{display:block;color:var(--doux);font-size:.86rem}
+.lignes em{font-size:.8rem;color:var(--doux)}
+.lignes .etiquette{flex:none}
+.pastille{width:12px;height:12px;border-radius:50%;background:var(--c);flex:none}
+
+/* Fiche / modale */
+.modal{position:fixed;inset:0;z-index:20;background:rgba(10,18,32,.55);display:flex;align-items:flex-end;justify-content:center}
+.modal[hidden]{display:none}
+.feuille{background:var(--papier);width:100%;max-width:680px;max-height:94vh;overflow-y:auto;border-radius:16px 16px 0 0;padding:18px 16px calc(24px + env(safe-area-inset-bottom,0px));animation:monte .2s ease-out}
+@media (min-width:700px){.modal{align-items:center}.feuille{border-radius:16px;max-height:88vh}}
+@keyframes monte{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion: reduce){.feuille{animation:none}}
+.feuille-tete{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}
+.feuille-tete h2{margin:0}
+.fermer{background:var(--carte);border:1px solid var(--ligne);border-radius:50%;width:38px;height:38px;flex:none;cursor:pointer;font-size:1rem}
+.bloc{background:var(--carte);border:1px solid var(--ligne);border-radius:var(--rayon);padding:12px 14px;margin-bottom:10px}
+dl.infos{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:.92rem}
+dl.infos dt{color:var(--doux)}
+dl.infos dd{margin:0}
+.plan{border-left:5px solid var(--c)}
+.plan-tete{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.badge{font-weight:700;color:var(--c);white-space:nowrap;font-size:.9rem}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.histo{border-left:5px solid var(--rc)}
+.r-conforme{--rc:var(--ok)} .r-reserves{--rc:var(--bientot)} .r-non_conforme{--rc:var(--retard)}
+.histo-tete{display:flex;justify-content:space-between;gap:10px}
+.res{font-weight:700;color:var(--rc);font-size:.9rem}
+.histo p{margin:4px 0 0;font-size:.92rem}
+.obs{white-space:pre-wrap;color:var(--texte)}
+.discret{color:var(--doux);font-size:.8rem !important}
+.doc{display:inline-block;margin:6px 6px 0 0;background:var(--papier);border:1px solid var(--ligne);border-radius:6px;padding:5px 9px;cursor:pointer;font-size:.86rem}
+
+/* Formulaires */
+form{display:grid;gap:12px}
+label{display:grid;gap:4px;font-weight:700;font-size:.92rem}
+input:not([type=checkbox]):not([type=radio]),select,textarea{width:100%;padding:10px 12px;border:1px solid var(--ligne);border-radius:8px;background:var(--carte);font-weight:400;min-height:44px}
+textarea{resize:vertical}
+.deux{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label.case{display:flex;align-items:center;gap:10px;font-weight:400}
+label.case input{width:20px;height:20px}
+.aide{font-weight:400;color:var(--doux);font-size:.82rem}
+fieldset{border:0;padding:0;margin:0;display:grid;gap:6px}
+legend{font-weight:700;font-size:.92rem;margin-bottom:4px}
+.choix{display:flex;align-items:center;gap:10px;background:var(--carte);border:2px solid var(--ligne);border-radius:8px;padding:10px 12px;font-weight:700;cursor:pointer}
+.choix:has(input:checked){border-color:var(--rc);background:color-mix(in srgb,var(--rc) 10%,var(--carte))}
+.choix input{width:20px;height:20px;accent-color:var(--rc)}
+.boutons{display:flex;gap:10px;flex-wrap:wrap}
+.boutons .principal{flex:1}
+
+/* Connexion */
+.connexion{max-width:400px;margin:8vh auto 0}
+.connexion h1{font-size:2.6rem}
+.connexion > p{color:var(--doux);margin:.3rem 0 1.6rem}
+
+/* Plus */
+.ligne-admin{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--ligne)}
+.ligne-admin:first-of-type{border-top:0}
+.ligne-admin div{min-width:0;flex:1}
+.ligne-admin small{display:block;color:var(--doux);overflow:hidden;text-overflow:ellipsis}
+.ligne-admin select{width:auto;min-height:38px;padding:6px 8px}
+.pile{display:grid;gap:8px}
+
+.etat-envoi{list-style:none;margin:0;padding:10px 12px;display:grid;gap:6px;font-size:.9rem;background:var(--carte);border:1px solid var(--ligne);border-radius:8px}
+.etat-envoi li{display:flex;flex-wrap:wrap;gap:0 8px;word-break:break-word}
+.etat-envoi li > span{width:1.2em;flex:none;font-weight:700;text-align:center}
+.etat-envoi small{flex-basis:100%;padding-left:calc(1.2em + 8px);color:var(--retard)}
+.e-ok > span{color:var(--ok)} .e-erreur{color:var(--retard)} .e-envoi > span{color:var(--accent)}
+.inc{display:grid;gap:4px;background:var(--carte);border:1px solid var(--ligne);border-left:6px solid var(--c);border-radius:var(--rayon);padding:12px 14px;cursor:pointer}
+.inc.p-urgente:not(.ferme){background:var(--retard-fond)}
+.inc.ferme{opacity:.78}
+.inc h3{font-size:1.15rem}
+.inc-tete{display:flex;flex-wrap:wrap;gap:6px}
+.p-urgente{--c:var(--retard)} .p-haute{--c:var(--bientot)} .p-normale{--c:var(--accent)} .p-basse{--c:var(--aucun)}
+.st-nouveau,.st-a_traiter,.st-en_cours{--c:var(--accent)} .st-attente_prestataire{--c:var(--planifier)} .st-resolu,.st-cloture{--c:var(--ok)}
+.etiquette.p-urgente{background:var(--retard);color:#fff;border-color:var(--retard)}
+.vignettes{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px;margin-top:8px}
+.vignette{padding:0;border:1px solid var(--ligne);border-radius:8px;overflow:hidden;aspect-ratio:1;background:var(--papier);cursor:pointer}
+.vignette img{width:100%;height:100%;object-fit:cover;display:block}
+.journal{list-style:none;margin:0;padding:0}
+.journal li{border-left:2px solid var(--ligne);padding:0 0 12px 12px;font-size:.9rem;word-break:break-word}
+.journal small{display:block;color:var(--doux);font-size:.8rem}
+@media (max-width:639px){#compteursInc .compteur:nth-child(3),#compteursInt .compteur:nth-child(3){grid-column:1 / -1}}
+.segments{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--carte);border:1px solid var(--ligne);border-radius:10px;padding:4px;margin-bottom:12px}
+.segments button{border:0;background:none;border-radius:7px;min-height:44px;font-weight:700;color:var(--doux);cursor:pointer}
+.segments button.actif{background:var(--accent);color:var(--accent-texte)}
+.itv{display:grid;gap:4px;background:var(--carte);border:1px solid var(--ligne);border-left:6px solid var(--c);border-radius:var(--rayon);padding:12px 14px;cursor:pointer}
+.itv.ferme{opacity:.78}
+.si-a_planifier,.si-en_attente{--c:var(--planifier)} .si-devis_demande,.si-devis_recu{--c:var(--bientot)}
+.si-valide,.si-planifie,.si-en_cours{--c:var(--accent)} .si-termine{--c:var(--ok)} .si-annule{--c:var(--aucun)}
+.totaux{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.totaux div{background:var(--carte);border:1px solid var(--ligne);border-radius:8px;padding:8px 10px;font-size:.85rem}
+.totaux b{display:block;font-size:1rem}
+table.montants{width:100%;border-collapse:collapse;font-size:.9rem}
+table.montants th,table.montants td{padding:6px 4px;border-bottom:1px solid var(--ligne);text-align:right}
+table.montants th:first-child,table.montants td:first-child{text-align:left}
+.grille-montant{display:grid;grid-template-columns:1fr 92px 1fr;gap:8px;align-items:end}
+.grille-montant label{font-size:.85rem}
+fieldset.montant{border:1px solid var(--ligne);border-radius:8px;padding:10px 12px}
+fieldset.montant legend{padding:0 4px}
+.commentaire{background:var(--carte);border:1px solid var(--ligne);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.commentaire p{margin:0;white-space:pre-wrap;word-break:break-word}
+.commentaire small{display:block;color:var(--doux);font-size:.8rem;margin-top:4px}
+.ligne-statut{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}
+#toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);background:var(--encre);color:#fff;padding:11px 16px;border-radius:8px;opacity:0;pointer-events:none;transition:.2s;z-index:30;max-width:90vw;text-align:center}
+#toast.visible{opacity:1;transform:translate(-50%,0)}
+#toast.erreur{background:var(--retard)}
+@media (prefers-color-scheme: dark){#toast{background:#2B3A55}}
+</style>
+</head>
+<body class="deconnecte">
+
+<header class="barre">
+  <div class="titre">Contrôles périodiques<small>Commune de Pasly</small></div>
+  <button class="icone-btn" id="btnActualiser" onclick="App.actualiser()" aria-label="Actualiser">
+    <svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+  </button>
+</header>
+
+<main id="vue"><p class="chargement">Chargement…</p></main>
+
+<nav class="onglets" aria-label="Navigation principale">
+  <button data-vue="echeances" onclick="App.aller('echeances')">
+    <svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Échéances<span class="nb" id="nbRetard" hidden></span>
+  </button>
+  <button data-vue="equipements" onclick="App.aller('equipements')">
+    <svg class="i" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg>Équipements
+  </button>
+  <button data-vue="reserves" onclick="App.aller('reserves')">
+    <svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.01"/></svg>Réserves
+  </button>
+  <button data-vue="incidents" onclick="App.aller('incidents')">
+    <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.01"/></svg>Travaux<span class="nb" id="nbInc" hidden></span>
+  </button>
+  <button data-vue="plus" onclick="App.aller('plus')">
+    <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>Compte
+  </button>
+</nav>
+
+<div id="modal" class="modal" hidden onclick="if(event.target===this)App.fermer()">
+  <div class="feuille" role="dialog" aria-modal="true"><div id="modalContenu"></div></div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ==================================================================
+   CONFIGURATION — à remplir avec les valeurs de votre projet Supabase
+   (Supabase > Project Settings > API : « Project URL » et « anon public »)
+   ================================================================== */
+const SUPABASE_URL      = 'https://idswkljjaoajhevgsnfh.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_kaRpfQPyPZUKjLkWOEyUTQ_vRKLLU7c';
+
+'use strict';
+const configure = !SUPABASE_URL.includes('VOTRE-PROJET') && !SUPABASE_ANON_KEY.includes('VOTRE_CLE');
+const sb = configure ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+const DOC_INT = { devis:'Devis', bon_commande:'Bon de commande', facture:'Facture', rapport:"Rapport d'intervention",
+  photo_avant:'Photo avant travaux', photo_apres:'Photo après travaux', autre:'Autre document' };
+const FIT_VIDES = () => ({ texte:'', site:'', responsable:'', prestataire:'', statut:'', du:'', au:'' });
+const FI_VIDES = () => ({ texte:'', site:'', statut:'', priorite:'', du:'', au:'' });
+const FILTRES_VIDES = () => ({ periode:'', categorie:'', prestataire:'', reserves:'', texte:'' });
+const S = { profil:null, sites:[], equipements:[], echeances:[], vue:'echeances', filtreSite:'',
+  incidents:[], incidentsErreur:null, fi:FI_VIDES(),
+  sousVue:'incidents', interventions:[], prestataires:[], profils:[], intErreur:null, fit:FIT_VIDES(),
+  filtres:FILTRES_VIDES(), majOk:null, erreurMaj:null };
+
+/* Contrôles types proposés à la création — périodicités indicatives, à valider */
+const MODELES = [
+  { cat:'Chauffage',            libelle:'Entretien annuel de la chaudière',                  v:1, u:'an' },
+  { cat:'Chauffage',            libelle:'Ramonage des conduits',                              v:1, u:'an' },
+  { cat:'Climatisation',        libelle:"Contrôle d'étanchéité des fluides frigorigènes",     v:1, u:'an' },
+  { cat:'Climatisation',        libelle:'Inspection périodique (puissance > 12 kW)',          v:5, u:'an' },
+  { cat:'Défibrillateur (DAE)', libelle:'Vérification visuelle (voyant, électrodes, batterie)', v:1, u:'mois' },
+  { cat:'Défibrillateur (DAE)', libelle:'Maintenance par le fabricant ou le prestataire',     v:1, u:'an' },
+  { cat:'Aire de jeux',         libelle:'Inspection visuelle de routine',                     v:1, u:'semaine' },
+  { cat:'Aire de jeux',         libelle:'Inspection fonctionnelle',                           v:3, u:'mois' },
+  { cat:'Aire de jeux',         libelle:'Contrôle annuel principal',                          v:1, u:'an' },
+  { cat:'Sécurité incendie',    libelle:'Vérification des extincteurs',                       v:1, u:'an' },
+  { cat:'Sécurité incendie',    libelle:"Vérification du système d'alarme incendie",          v:1, u:'an' },
+  { cat:'Sécurité incendie',    libelle:'Vérification de l’éclairage de sécurité (BAES)',     v:1, u:'an' },
+  { cat:'Sécurité incendie',    libelle:'Vérification du désenfumage',                        v:1, u:'an' },
+  { cat:'Électricité',          libelle:'Vérification des installations électriques',         v:1, u:'an' },
+  { cat:'Gaz',                  libelle:'Vérification des installations de gaz',              v:1, u:'an' },
+  { cat:'Portes et portails',   libelle:'Entretien des portes et portails automatiques',      v:6, u:'mois' },
+];
+const CATEGORIES = [...new Set(MODELES.map(m => m.cat))];
+const RESULTATS = { conforme:'Conforme', reserves:'Avec réserves', non_conforme:'Non conforme' };
+/* ---- Module Incidents : libellés (les codes sont vérifiés par la base) ---- */
+const CAT_INC = { plomberie:'Plomberie', chauffage:'Chauffage', electricite:'Électricité', menuiserie:'Menuiserie', serrurerie:'Serrurerie',
+  nettoyage:'Nettoyage', securite:'Sécurité', informatique:'Informatique', espaces_exterieurs:'Espaces extérieurs', autre:'Autre' };
+const PRIO = { urgente:'Urgente', haute:'Haute', normale:'Normale', basse:'Basse' };
+const RANG_PRIO = { urgente:0, haute:1, normale:2, basse:3 };
+const STATUTS_INC = { nouveau:'Nouveau', a_traiter:'À traiter', en_cours:'En cours', attente_prestataire:"En attente d'un prestataire", resolu:'Résolu', cloture:'Clôturé' };
+const DOC_INC = { photo_signalement:'Photo du signalement', photo_intervention:'Photo après intervention', devis:'Devis', facture:'Facture', autre:'Autre document' };
+const CHAMPS_INC = { site_id:'Bâtiment', equipement_id:'Équipement', titre:'Titre', description:'Description', categorie:'Catégorie', priorite:'Priorité',
+  statut:'Statut', date_signalement:'Date de signalement', signale_par:'Signalé par', responsable:'Responsable', entreprise:'Entreprise',
+  devis_montant:'Montant du devis', devis_reference:'Référence du devis', facture_montant:'Montant de la facture', facture_reference:'Référence de la facture',
+  date_resolution:'Date de résolution', date_cloture:'Date de clôture' };
+const euros = v => (v === null || v === undefined || v === '') ? '—' : Number(v).toLocaleString('fr-FR', { style:'currency', currency:'EUR' });
+const ouvert = i => !['resolu','cloture'].includes(i.statut);
+/* ---- Module Interventions ---- */
+const STATUTS_INT = { a_planifier:'À planifier', devis_demande:'Devis demandé', devis_recu:'Devis reçu', valide:'Validé', planifie:'Planifié',
+  en_cours:'En cours', en_attente:'En attente', termine:'Terminé', annule:'Annulé' };
+const ORDRE_INT = Object.keys(STATUTS_INT);
+const MONTANTS = [['estimation', 'Estimation', 'Prévisionnel, non engagé'], ['devis', 'Devis', 'Prévisionnel, non engagé'], ['cout_reel', 'Coût réel', 'Dépense réalisée']];
+const CHAMPS_INT = { incident_id:'Incident lié', site_id:'Bâtiment', equipement_id:'Équipement', objet:'Objet', description:'Description',
+  responsable_id:'Responsable', prestataire_id:'Entreprise', statut:'Statut', date_prevue_debut:'Début prévu', date_prevue_fin:'Fin prévue',
+  date_debut_reelle:'Début réel', date_fin_reelle:'Fin réelle', estimation_ht:'Estimation HT', estimation_ttc:'Estimation TTC',
+  devis_ht:'Devis HT', devis_ttc:'Devis TTC', cout_reel_ht:'Coût réel HT', cout_reel_ttc:'Coût réel TTC', compte_rendu:'Compte rendu' };
+const intOuverte = x => !['termine','annule'].includes(x.statut);
+const dateRefInt = x => x.date_debut_reelle || x.date_prevue_debut || String(x.created_at || '').slice(0, 10);
+const nomProfil = id => { const u = S.profils.find(x => x.id === id); return u ? (u.nom || u.email) : null; };
+const responsables = () => S.profils.filter(u => ['admin','contributeur'].includes(u.role));
+const ROLES = { admin:'Administrateur', contributeur:'Contributeur', lecteur:'Lecture seule' };
+const TITRES = { retard:'En retard', planifier:'À planifier', bientot:'À prévoir', ok:'À jour' };
+const ORDRE = ['retard','planifier','bientot','ok'];
+const SECTIONS = { retard:'En retard', planifier:'Sans date : à planifier', bientot:'À prévoir (délai de rappel atteint)', ok:'À jour' };
+/* Tranches exclusives : chaque échéance appartient à une seule tranche (leur somme = total) */
+const PERIODES = {
+  retard:'En retard',
+  '0-30':'Dans les 30 jours (J0 à J+30)',
+  '31-90':'Dans 31 à 90 jours',
+  '91-365':'Dans 91 jours à 12 mois',
+  '366+':'Au-delà de 12 mois',
+  planifier:'Sans date : à planifier',
+};
+const TRANCHES = { '0-30':[0, 30], '31-90':[31, 90], '91-365':[91, 365], '366+':[366, Infinity] };
+
+/* ---------- Outils ---------- */
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad = n => String(n).padStart(2, '0');
+const isoLocal = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const aujourdhui = () => isoLocal(new Date());
+const dateObj = iso => new Date(iso + 'T00:00:00');
+const fmt = iso => iso ? dateObj(iso).toLocaleDateString('fr-FR', { day:'numeric', month:'long', year:'numeric' }) : '—';
+const ecart = iso => Math.round((dateObj(iso) - dateObj(aujourdhui())) / 86400000);
+const peutSaisir = () => ['admin','contributeur'].includes(S.profil?.role);
+const estAdmin = () => S.profil?.role === 'admin';
+const vide = v => (v === '' || v === undefined) ? null : v;
+const siteActif = x => x && x.actif !== false;          // sans la colonne (base non migrée) : actif
+const sitesActifs = () => S.sites.filter(siteActif);
+async function nbControles(planIds){
+  if (!planIds.length) return 0;
+  const { count, error } = await sb.from('controles').select('id', { count:'exact', head:true }).in('plan_id', planIds);
+  if (error) throw error;
+  return count || 0;
+}
+
+function perio(v, u){
+  if (v === 1) return { jour:'Tous les jours', semaine:'Chaque semaine', mois:'Chaque mois', an:'Chaque année' }[u];
+  return `Tous les ${v} ${{ jour:'jours', semaine:'semaines', mois:'mois', an:'ans' }[u]}`;
+}
+function statut(e){
+  if (!e.prochaine) return 'planifier';
+  const j = ecart(e.prochaine);
+  if (j < 0) return 'retard';
+  if (j <= (e.rappel_jours ?? 30)) return 'bientot';
+  return 'ok';
+}
+function delai(e){
+  if (!e.prochaine) return 'Date du premier contrôle à définir';
+  const j = ecart(e.prochaine);
+  if (j < 0)  return `En retard de ${-j} jour${-j > 1 ? 's' : ''}`;
+  if (j === 0) return "Aujourd'hui";
+  return `Dans ${j} jour${j > 1 ? 's' : ''}`;
+}
+
+let toastT;
+function toast(msg, erreur = false){
+  const t = $('#toast'); t.textContent = msg; t.className = 'visible' + (erreur ? ' erreur' : '');
+  clearTimeout(toastT); toastT = setTimeout(() => t.className = '', 3800);
+}
+function traduire(e){
+  const m = e?.message || String(e);
+  if (e?.code === '23505') return 'Enregistrement refusé : il ferait doublon avec une donnée déjà présente.';
+  if (e?.code === '23503') return "Suppression impossible : des contrôles sont enregistrés. Archivez plutôt pour conserver l'historique.";
+  if (/column .*actif.* does not exist|schema cache/i.test(m)) return "Mise à jour de la base nécessaire : exécutez le script SQL d'archivage dans Supabase.";
+  if (/row-level security|permission denied/i.test(m)) return 'Action non autorisée pour votre rôle.';
+  if (/Invalid login/i.test(m)) return 'Adresse e-mail ou mot de passe incorrect.';
+  if (/Failed to fetch|NetworkError/i.test(m)) return 'Connexion impossible. Vérifiez le réseau.';
+  return m;
+}
+async function q(promesse){
+  const { data, error } = await promesse;
+  if (error){ toast(traduire(error), true); throw error; }
+  return data;
+}
+function ouvrir(html){
+  $('#modalContenu').innerHTML = html;
+  $('#modal').hidden = false;
+  document.body.classList.add('bloque');
+}
+function fermer(){
+  $('#modal').hidden = true;
+  document.body.classList.remove('bloque');
+  $('#modalContenu').innerHTML = '';
+}
+const tete = titre => `<div class="feuille-tete"><h2>${titre}</h2><button class="fermer" onclick="App.fermer()" aria-label="Fermer">✕</button></div>`;
+
+function telecharger(nom, contenu, type){
+  const url = URL.createObjectURL(new Blob([contenu], { type }));
+  const a = document.createElement('a'); a.href = url; a.download = nom;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+
+async function compresser(f){
+  if (!f.type.startsWith('image/') || f.type === 'image/gif') return f;
+  try {
+    const bmp = await createImageBitmap(f);
+    const r = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+    if (r === 1 && f.size < 1.5e6) return f;
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * r); c.height = Math.round(bmp.height * r);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.82));
+    return blob ? new File([blob], f.name.replace(/\.\w+$/, '') + '.jpg', { type:'image/jpeg' }) : f;
+  } catch { return f; }
+}
+
+/* Envois en cours, conservés en mémoire pour pouvoir reprendre sans rien recréer */
+const ENVOIS = {};
+const nouvelId = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+  : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); });
+const preparer = fichiers => [...fichiers].map((f, i) => ({ f, i, etat:'attente', chemin:null, fic:null, message:'' }));
+
+function afficherEtat(zone, entrees){
+  if (!zone || !entrees.length) return;
+  zone.hidden = false;
+  const sym = { attente:'•', envoi:'…', ok:'✓', erreur:'✗' };
+  zone.innerHTML = entrees.map(en => `<li class="e-${en.etat}"><span>${sym[en.etat]}</span>${esc(en.f.name)}${en.etat === 'erreur' ? `<small>${esc(en.message)}</small>` : ''}</li>`).join('');
+}
+
+/* Vérifie qu'un contrôle portant cet identifiant existe réellement et correspond au bon contrôle prévu.
+   Renvoie la ligne, ou null si elle n'existe pas. Une erreur de lecture est remontée (on ne conclut rien). */
+async function verifierControle(id, planId){
+  const { data, error } = await sb.from('controles').select('id, plan_id, date_realisation').eq('id', id).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  if (planId && data.plan_id !== planId) throw new Error("Identifiant déjà utilisé par un autre contrôle. Fermez le formulaire et recommencez la saisie.");
+  return data;
+}
+/* Destination des fichiers : rapports de contrôle (par défaut) ou documents d'incident */
+const CIBLE_RAPPORTS = { bucket:'rapports', table:'documents', cle:'controle_id',
+  ligne:(id, en) => ({ controle_id:id, chemin:en.chemin, nom:en.f.name, type:en.fic.type }) };
+const cibleIntervention = type => ({ bucket:'interventions', table:'intervention_documents', cle:'intervention_id',
+  ligne:(id, en) => ({ intervention_id:id, chemin:en.chemin, nom:en.f.name, mime:en.fic.type, type }) });
+const cibleIncident = type => ({ bucket:'incidents', table:'incident_documents', cle:'incident_id',
+  ligne:(id, en) => ({ incident_id:id, chemin:en.chemin, nom:en.f.name, mime:en.fic.type, type }) });
+async function documentExiste(controleId, chemin, cible = CIBLE_RAPPORTS){
+  const { data, error } = await sb.from(cible.table).select('id').eq('chemin', chemin).eq(cible.cle, controleId).maybeSingle();
+  if (error) throw error;
+  return !!data;
+}
+
+/* Envoie chaque fichier une seule fois. Un fichier déjà stocké ou déjà rattaché
+   (chemin identique) est reconnu et n'est pas dupliqué. Renvoie le nombre d'échecs. */
+/* Mode test (adresse terminée par ?test, administrateur uniquement) : pannes simulées sur le prochain envoi */
+const PANNES = { actif:new URLSearchParams(location.search).has('test'), upload:0, document:0, fichier:-1 };
+function panne(type, en){
+  if (!PANNES.actif || !estAdmin()) return;
+  if (type === 'upload' && PANNES.upload > 0){ PANNES.upload--; throw new Error("Panne simulée : échec de l'envoi du fichier"); }
+  if (type === 'upload' && PANNES.fichier === en.i){ PANNES.fichier = -1; throw new Error("Panne simulée : échec de l'envoi de ce fichier"); }
+  if (type === 'document' && PANNES.document > 0){ PANNES.document--; throw new Error("Panne simulée : fichier stocké, mais document non enregistré"); }
+}
+const fichierDejaStocke = err => String(err?.statusCode) === '409' || err?.status === 409 || /already exists|duplicate/i.test(err?.message || '');
+
+let envoisEnCours = 0;
+window.addEventListener('beforeunload', ev => { if (envoisEnCours){ ev.preventDefault(); ev.returnValue = ''; } });
+
+async function envoyerFichiers(controleId, lot, entrees, bouton, zone, cible = CIBLE_RAPPORTS){
+  envoisEnCours++;
+  try { return await envoyerFichiers_(controleId, lot, entrees, bouton, zone, cible); }
+  finally { envoisEnCours--; }
+}
+async function envoyerFichiers_(controleId, lot, entrees, bouton, zone, cible){
+  const total = entrees.length;
+  for (const en of entrees){
+    if (en.etat === 'ok') continue;
+    en.etat = 'envoi'; afficherEtat(zone, entrees);
+    if (bouton) bouton.textContent = `Envoi du fichier ${en.i + 1} sur ${total}…`;
+    try {
+      if (!en.chemin){
+        en.fic = await compresser(en.f);
+        en.chemin = `${controleId}/${lot}-${en.i}-${en.fic.name.replace(/[^\w.\-]/g, '_')}`;
+      }
+      if (!en.stocke){
+        panne('upload', en);
+        const up = await sb.storage.from(cible.bucket).upload(en.chemin, en.fic, { contentType: en.fic.type || undefined });
+        /* 409 : le fichier est déjà à cet emplacement (chemin unique propre à ce lot : c'est notre envoi précédent) */
+        if (up.error && !fichierDejaStocke(up.error)) throw up.error;
+        en.stocke = true;
+      }
+      panne('document', en);
+      const ins = await sb.from(cible.table).insert(cible.ligne(controleId, en));
+      /* Une erreur n'est acceptée que si le document est effectivement déjà rattaché */
+      if (ins.error && !(await documentExiste(controleId, en.chemin, cible))) throw ins.error;
+      en.etat = 'ok';
+    } catch (err){
+      en.etat = 'erreur'; en.message = traduire(err);
+    }
+    afficherEtat(zone, entrees);
+  }
+  return entrees.filter(x => x.etat !== 'ok').length;
+}
+
+/* ---------- Démarrage et connexion ---------- */
+async function demarrer(){
+  if (!configure){
+    $('#vue').innerHTML = `<section class="connexion"><h1>Configuration</h1>
+      <p>Renseignez l'adresse du projet Supabase et la clé publique en haut du fichier, dans la section CONFIGURATION.</p></section>`;
+    return;
+  }
+  sb.auth.onAuthStateChange((evenement) => {
+    if (evenement === 'PASSWORD_RECOVERY') setTimeout(() => App.changerMdp(true), 0);
+  });
+  const { data:{ session } } = await sb.auth.getSession();
+  if (session) await apresConnexion(); else afficherConnexion();
+}
+
+function afficherConnexion(){
+  document.body.classList.add('deconnecte');
+  S.profil = null;
+  $('#vue').innerHTML = `<section class="connexion">
+    <h1>Contrôles périodiques</h1>
+    <p>Commune de Pasly. Connectez-vous avec le compte fourni par la mairie.</p>
+    <form onsubmit="App.connexion(event)">
+      <label>Adresse e-mail<input name="email" type="email" required autocomplete="username"></label>
+      <label>Mot de passe<input name="mdp" type="password" required autocomplete="current-password"></label>
+      <button class="principal" type="submit">Se connecter</button>
+    </form>
+    <button class="lien" onclick="App.oubli()">Mot de passe oublié</button>
+  </section>`;
+}
+
+async function apresConnexion(){
+  const { data:{ user } } = await sb.auth.getUser();
+  if (!user) return afficherConnexion();
+  const { data } = await sb.from('profils').select('*').eq('id', user.id).maybeSingle();
+  S.profil = data;
+  document.body.classList.remove('deconnecte');
+  if (!S.profil){
+    $('#vue').innerHTML = `<p class="vide">Votre compte n'a pas de profil. Relancez le script SQL d'installation, puis reconnectez-vous.</p>
+      <button class="secondaire" onclick="App.deconnexion()">Se déconnecter</button>`;
+    return;
+  }
+  await recharger();
+}
+
+/* Recharge les données. En cas d'échec, les données déjà affichées sont conservées. */
+async function recharger(){
+  const btn = $('#btnActualiser');
+  btn.disabled = true; btn.setAttribute('aria-busy', 'true');
+  try {
+    const res = await Promise.all([
+      sb.from('sites').select('*').order('ordre').order('nom'),
+      sb.from('equipements').select('*').order('nom'),
+      sb.from('v_echeances').select('*').order('prochaine', { ascending:true, nullsFirst:true }),
+      sb.from('controles').select('id', { count:'exact', head:true }).neq('resultat', 'conforme').eq('reserve_levee', false),
+    ]);
+    const err = res.find(r => r.error);
+    if (err) throw err.error;
+    S.sites = res[0].data || []; S.equipements = res[1].data || []; S.echeances = res[2].data || [];
+    S.nbReserves = res[3].count ?? 0;
+    S.majOk = new Date(); S.erreurMaj = null;
+  } catch (err){
+    S.erreurMaj = { date:new Date(), message:traduire(err) };
+    toast('Actualisation impossible : ' + S.erreurMaj.message, true);
+  } finally {
+    btn.disabled = false; btn.removeAttribute('aria-busy');
+  }
+  const n = S.echeances.filter(e => statut(e) === 'retard').length;
+  const nb = $('#nbRetard'); nb.hidden = !n; nb.textContent = n;
+  if (!S.erreurMaj){ await chargerIncidents(); await chargerInterventions(); }   // modules indépendants : leur échec n'affecte pas les autres onglets
+  await rendre();
+  return !S.erreurMaj;
+}
+
+/* ---------- Module Incidents : données ---------- */
+const tableAbsente = e => ['42P01','PGRST205'].includes(e?.code) || /relation .*(incident|intervention|prestataire).* does not exist|Could not find the table/i.test(e?.message || '');
+async function chargerIncidents(){
+  const { data, error } = await sb.from('incidents').select('*, sites(nom), equipements(nom)')
+    .order('date_signalement', { ascending:false }).order('created_at', { ascending:false }).range(0, 1999);
+  if (error){ S.incidentsErreur = tableAbsente(error) ? 'absent' : traduire(error); majBadgeInc(); return false; }
+  S.incidents = data || []; S.incidentsErreur = null; majBadgeInc(); return true;
+}
+function majBadgeInc(){
+  const n = S.incidents.filter(i => i.priorite === 'urgente' && ouvert(i)).length;
+  const b = $('#nbInc'); if (b){ b.hidden = !n; b.textContent = n; }
+}
+async function chargerInterventions(){
+  const res = await Promise.all([
+    sb.from('interventions').select('*, sites(nom), equipements(nom), prestataires(nom), incidents(titre, statut)')
+      .order('created_at', { ascending:false }).range(0, 1999),
+    sb.from('prestataires').select('*').order('nom'),
+    sb.from('profils').select('id, nom, email, role').order('nom'),
+  ]);
+  const err = res.find(r => r.error)?.error;
+  if (err){ S.intErreur = tableAbsente(err) ? 'absent' : traduire(err); return false; }
+  S.interventions = res[0].data || []; S.prestataires = res[1].data || []; S.profils = res[2].data || []; S.intErreur = null;
+  return true;
+}
+async function verifierIntervention(id){
+  const { data, error } = await sb.from('interventions').select('id').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return !!data;
+}
+async function majIntervention(id, d){
+  const r = await q(sb.from('interventions').update(d).eq('id', id).select('id'));
+  if (!r || !r.length) throw new Error('Modification refusée : intervention introuvable ou droits insuffisants.');
+}
+/* Montant saisi « 1 250,50 » -> 1250.5 ; vide -> null ; sinon erreur explicite */
+function lireMontant(v, libelle){
+  const t = String(v || '').trim().replace(/[\s\u202f\u00a0]/g, '').replace(',', '.');
+  if (!t) return null;
+  if (!/^\d+(\.\d{1,2})?$/.test(t)) throw new Error(`${libelle} : montant invalide (nombre positif, 2 décimales maximum).`);
+  return Number(t);
+}
+async function verifierIncident(id){
+  const { data, error } = await sb.from('incidents').select('id').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return !!data;
+}
+/* Mise à jour contrôlée : 0 ligne modifiée = refus (droits, incident supprimé) */
+async function majIncident(id, d){
+  const r = await q(sb.from('incidents').update(d).eq('id', id).select('id'));
+  if (!r || !r.length) throw new Error('Modification refusée : incident introuvable ou droits insuffisants.');
+}
+
+const heureFr = d => `${d.getHours()} h ${pad(d.getMinutes())}`;
+function quand(d){
+  const hier = new Date(); hier.setDate(hier.getDate() - 1);
+  if (isoLocal(d) === aujourdhui()) return `aujourd'hui à ${heureFr(d)}`;
+  if (isoLocal(d) === isoLocal(hier)) return `hier à ${heureFr(d)}`;
+  return `le ${d.toLocaleDateString('fr-FR', { day:'numeric', month:'long', year:'numeric' })} à ${heureFr(d)}`;
+}
+function ligneMaj(){
+  let h = '';
+  if (S.erreurMaj){
+    h += `<p class="maj erreur" role="alert">Échec de l'actualisation ${quand(S.erreurMaj.date)} : ${esc(S.erreurMaj.message)}
+      <button class="lien" onclick="App.actualiser()">Réessayer</button></p>`;
+  }
+  if (S.majOk) h += `<p class="maj">${S.erreurMaj ? 'Données affichées actualisées' : 'Données actualisées'} ${quand(S.majOk)}</p>`;
+  return h;
+}
+
+async function rendre(){
+  document.querySelectorAll('.onglets button').forEach(b => b.classList.toggle('actif', b.dataset.vue === S.vue));
+  const v = $('#vue');
+  if (S.vue === 'echeances'){  v.innerHTML = vueEcheances(); majEcheances(); }
+  if (S.vue === 'equipements') v.innerHTML = vueEquipements();
+  if (S.vue === 'reserves')  { v.innerHTML = '<p class="chargement">Chargement…</p>'; v.innerHTML = await vueReserves(); }
+  if (S.vue === 'plus')      { v.innerHTML = '<p class="chargement">Chargement…</p>'; v.innerHTML = await vuePlus(); }
+  if (S.vue === 'incidents'){
+    if (S.sousVue === 'interventions'){ v.innerHTML = vueInterventions(); majInterventions(); }
+    else { v.innerHTML = vueIncidents(); majIncidents(); }
+  }
+}
+
+/* ---------- Vue : interventions ---------- */
+function ongletsTravaux(){
+  const b = (k, l) => `<button class="${S.sousVue === k ? 'actif' : ''}" aria-pressed="${S.sousVue === k}" onclick="App.sousVue('${k}')">${l}</button>`;
+  return `<div class="segments" role="group" aria-label="Travaux">${b('incidents', 'Incidents')}${b('interventions', 'Interventions')}</div>`;
+}
+const nbFiltresInt = () => [S.fit.site, S.fit.responsable, S.fit.prestataire, S.fit.statut, S.fit.du, S.fit.au].filter(Boolean).length;
+function filtrerInt(base = false){
+  const F = S.fit, t = norm(F.texte).trim();
+  return S.interventions.filter(x => {
+    if (F.site && x.site_id !== F.site) return false;
+    if (F.responsable === '__aucun' ? x.responsable_id : (F.responsable && x.responsable_id !== F.responsable)) return false;
+    if (F.prestataire === '__aucun' ? x.prestataire_id : (F.prestataire && x.prestataire_id !== F.prestataire)) return false;
+    const d = dateRefInt(x);
+    if (F.du && d < F.du) return false;
+    if (F.au && d > F.au) return false;
+    if (t && !norm([x.objet, x.description, x.sites?.nom, x.equipements?.nom, x.prestataires?.nom, nomProfil(x.responsable_id), x.incidents?.titre].join(' ')).includes(t)) return false;
+    if (base) return true;
+    if (F.statut === 'ouvertes' ? !intOuverte(x) : (F.statut && x.statut !== F.statut)) return false;
+    return true;
+  }).sort((a, b) => (intOuverte(b) - intOuverte(a)) || (intOuverte(a) ? dateRefInt(a).localeCompare(dateRefInt(b)) : dateRefInt(b).localeCompare(dateRefInt(a))));
+}
+function vueInterventions(){
+  if (S.intErreur === 'absent'){
+    return ongletsTravaux() + `<h1>Interventions</h1><div class="vide" style="margin-top:12px">Le module Interventions n'est pas encore installé dans la base.
+      Exécutez le script <b>migration-interventions.sql</b> dans Supabase, puis actualisez.</div>`;
+  }
+  const F = S.fit;
+  const opt = (v, l, sel) => `<option value="${esc(v)}" ${v === sel ? 'selected' : ''}>${esc(l)}</option>`;
+  return ligneMaj() + ongletsTravaux() + `<div class="entete-vue"><h1>Interventions</h1>${peutSaisir() ? `<button class="principal petit" onclick="App.formIntervention()">Nouvelle</button>` : ''}</div>
+  ${S.intErreur ? `<p class="maj erreur" role="alert">Interventions non actualisées : ${esc(S.intErreur)} <button class="lien" onclick="App.actualiser()">Réessayer</button></p>` : ''}
+  <div class="compteurs" id="compteursInt"></div>
+  <div class="recherche">
+    <input type="search" id="rechercheInt" placeholder="Rechercher…" value="${esc(F.texte)}" oninput="App.filtreInt('texte', this.value)" aria-label="Rechercher une intervention" autocomplete="off">
+    <button class="effacer" id="effacerRechercheInt" onclick="App.filtreInt('texte',''); document.getElementById('rechercheInt').value=''" ${F.texte ? '' : 'hidden'}>Effacer</button>
+  </div>
+  <details class="filtres" ${nbFiltresInt() ? 'open' : ''}>
+    <summary>Filtres<span id="nbFiltresInt"></span></summary>
+    <div class="grille-filtres">
+      <label>Bâtiment<select id="ftSite" onchange="App.filtreInt('site', this.value)">${opt('', 'Tous les bâtiments', F.site)}${S.sites.map(x => opt(x.id, x.nom, F.site)).join('')}</select></label>
+      <label>Responsable<select id="ftResp" onchange="App.filtreInt('responsable', this.value)">${opt('', 'Tous', F.responsable)}${responsables().map(u => opt(u.id, u.nom || u.email, F.responsable)).join('')}${opt('__aucun', 'Non attribué', F.responsable)}</select></label>
+      <label>Entreprise<select id="ftPrest" onchange="App.filtreInt('prestataire', this.value)">${opt('', 'Toutes', F.prestataire)}${S.prestataires.map(x => opt(x.id, x.nom, F.prestataire)).join('')}${opt('__aucun', 'Sans entreprise', F.prestataire)}</select></label>
+      <label>Statut<select id="ftStatut" onchange="App.filtreInt('statut', this.value)">${opt('', 'Tous', F.statut)}${opt('ouvertes', 'En cours de traitement (non terminées)', F.statut)}${Object.entries(STATUTS_INT).map(([k, v]) => opt(k, v, F.statut)).join('')}</select></label>
+      <label>Période du<input type="date" id="ftDu" value="${esc(F.du)}" onchange="App.filtreInt('du', this.value)"></label>
+      <label>au<input type="date" id="ftAu" value="${esc(F.au)}" onchange="App.filtreInt('au', this.value)"></label>
+    </div>
+    <p class="aide" style="margin:8px 0 0">Période : date de début réelle, sinon date de début prévue, sinon date de création.</p>
+    <button class="lien" onclick="App.effacerFiltresInt()">Réinitialiser les filtres</button>
+  </details>
+  <div id="resultatsInt" aria-live="polite"></div>`;
+}
+function carteIntervention(x){
+  const dates = x.date_debut_reelle ? `Début réel le ${fmt(x.date_debut_reelle)}` : x.date_prevue_debut ? `Début prévu le ${fmt(x.date_prevue_debut)}` : 'Dates à définir';
+  return `<article class="itv si-${x.statut} ${intOuverte(x) ? '' : 'ferme'}" onclick="App.ficheIntervention('${x.id}')">
+    <div class="inc-tete"><span class="etiquette si-${x.statut}">${STATUTS_INT[x.statut]}</span>
+      <span class="etiquette s-aucun">${x.nature === 'corrective' ? 'Corrective' : 'Préventive'}</span></div>
+    <h3>${esc(x.objet)}</h3>
+    <p class="sous">${esc(x.sites?.nom || '?')}${x.equipements?.nom ? `, ${esc(x.equipements.nom)}` : ''}${x.prestataires?.nom ? `, ${esc(x.prestataires.nom)}` : ''}</p>
+    <p class="meta">${dates}${x.responsable_id ? `<br>Responsable : ${esc(nomProfil(x.responsable_id) || '?')}` : ''}${x.incidents?.titre ? `<br>Incident : ${esc(x.incidents.titre)}` : ''}</p>
+  </article>`;
+}
+/* Prévisionnel non engagé = devis (à défaut estimation) des interventions ni terminées ni annulées et sans coût réel.
+   Réalisé = coût réel uniquement. Un devis n'est jamais compté comme dépense. */
+function totauxInt(l){
+  const t = { prevHT:0, prevTTC:0, reelHT:0, reelTTC:0 };
+  for (const x of l){
+    if (x.cout_reel_ht != null || x.cout_reel_ttc != null){ t.reelHT += Number(x.cout_reel_ht || 0); t.reelTTC += Number(x.cout_reel_ttc || 0); continue; }
+    if (!intOuverte(x)) continue;
+    const ht = x.devis_ht ?? x.estimation_ht, ttc = x.devis_ttc ?? x.estimation_ttc;
+    t.prevHT += Number(ht || 0); t.prevTTC += Number(ttc || 0);
+  }
+  return t;
+}
+function majInterventions(){
+  const zone = $('#resultatsInt'); if (!zone) return;
+  const F = S.fit, base = filtrerInt(true), liste = filtrerInt();
+  const ind = [
+    { k:'en_cours', cls:'s-periode', l:'En cours' },
+    { k:'devis_demande', cls:'s-bientot', l:'Devis demandés (en attente)' },
+    { k:'a_planifier', cls:'s-planifier', l:'À planifier' },
+  ];
+  $('#compteursInt').innerHTML = ind.map(i => { const actif = F.statut === i.k;
+    return `<button class="compteur ${i.cls} ${actif ? 'actif' : ''}" onclick="App.indicateurInt('${i.k}')" aria-pressed="${actif}">
+      <b>${base.filter(x => x.statut === i.k).length}</b><span>${i.l}</span><small class="voir">${actif ? 'Afficher tout' : 'Voir la liste ›'}</small></button>`; }).join('');
+  const n = nbFiltresInt();
+  $('#nbFiltresInt').textContent = n ? `(${n} actif${n > 1 ? 's' : ''})` : '';
+  const eff = $('#effacerRechercheInt'); if (eff) eff.hidden = !F.texte;
+  [['ftSite', F.site], ['ftResp', F.responsable], ['ftPrest', F.prestataire], ['ftStatut', F.statut], ['ftDu', F.du], ['ftAu', F.au]].forEach(([id, v]) => { const el = $('#' + id); if (el) el.value = v; });
+  const t = totauxInt(liste);
+  let h = `<div class="totaux">
+      <div>Prévisionnel <small>(non engagé)</small><b>${euros(t.prevTTC)} TTC</b>${euros(t.prevHT)} HT</div>
+      <div>Réalisé <small>(coût réel)</small><b>${euros(t.reelTTC)} TTC</b>${euros(t.reelHT)} HT</div>
+    </div>
+    <div class="bilan"><span>${liste.length} intervention${liste.length > 1 ? 's' : ''}${n || F.texte ? ` sur ${S.interventions.length}` : ''}</span></div>`;
+  if (!S.interventions.length && !S.intErreur){
+    h += `<div class="vide">Aucune intervention enregistrée.${peutSaisir() ? ` <button class="lien" onclick="App.formIntervention()">Créer une intervention</button>` : ''}</div>`;
+  } else if (!liste.length){
+    h += `<div class="vide">Aucune intervention ne correspond${F.texte ? ` à « ${esc(F.texte)} »` : ''}${n ? ' avec les filtres choisis' : ''}.
+      <br><button class="lien" onclick="App.effacerFiltresInt()">Réinitialiser la recherche et les filtres</button></div>`;
+  }
+  const ouv = liste.filter(intOuverte), fer = liste.filter(x => !intOuverte(x));
+  if (ouv.length) h += `<h2>En cours de traitement</h2><div class="liste">${ouv.map(carteIntervention).join('')}</div>`;
+  if (fer.length) h += `<h2>Terminées et annulées</h2><div class="liste">${fer.map(carteIntervention).join('')}</div>`;
+  zone.innerHTML = h;
+}
+function valeurInt(champ, v){
+  if (v === null || v === undefined || v === '') return '—';
+  if (champ === 'statut') return STATUTS_INT[v] || v;
+  if (champ === 'responsable_id') return nomProfil(v) || 'utilisateur supprimé';
+  if (champ === 'prestataire_id') return S.prestataires.find(x => x.id === v)?.nom || '?';
+  if (champ === 'incident_id') return S.incidents.find(x => x.id === v)?.titre || 'incident';
+  if (champ === 'site_id') return S.sites.find(x => x.id === v)?.nom || '?';
+  if (champ === 'equipement_id') return S.equipements.find(x => x.id === v)?.nom || '?';
+  if (/^date_/.test(champ)) return fmt(String(v).slice(0, 10));
+  if (/_(ht|ttc)$/.test(champ)) return euros(v);
+  const t = String(v); return t.length > 90 ? t.slice(0, 90) + '…' : t;
+}
+function ligneJournalInt(h){
+  const d = new Date(h.created_at);
+  const quandTxt = `${d.toLocaleDateString('fr-FR', { day:'numeric', month:'short', year:'numeric' })} à ${heureFr(d)}`;
+  const lib = { creation:'Intervention créée', suppression:'Intervention supprimée' }[h.action];
+  const t = lib || (h.action === 'document' ? `Ajout : ${esc(h.nouvelle_valeur || 'document')} (${DOC_INT[h.champ] || esc(h.champ || '')})`
+    : h.action === 'document_retire' ? `Document retiré : ${esc(h.ancienne_valeur || '')}`
+    : `${CHAMPS_INT[h.champ] || esc(h.champ)} : ${esc(valeurInt(h.champ, h.ancienne_valeur))} → <b>${esc(valeurInt(h.champ, h.nouvelle_valeur))}</b>`);
+  return `<li>${t}<small>${quandTxt}${h.auteur_nom ? `, ${esc(h.auteur_nom)}` : ''}</small></li>`;
+}
+function champMontant(cle, libelle, x){
+  const v = k => x[k] == null ? '' : String(x[k]).replace('.', ',');
+  return `<fieldset class="montant"><legend>${libelle}</legend><div class="grille-montant">
+    <label>HT (€)<input name="${cle}_ht" inputmode="decimal" value="${esc(v(cle + '_ht'))}" placeholder="0,00" oninput="App.calculTTC(this.form,'${cle}')"></label>
+    <label>TVA<select name="${cle}_tva" onchange="App.calculTTC(this.form,'${cle}')"><option value="0.2">20 %</option><option value="0.1">10 %</option><option value="0.055">5,5 %</option><option value="0">0 %</option></select></label>
+    <label>TTC (€)<input name="${cle}_ttc" inputmode="decimal" value="${esc(v(cle + '_ttc'))}" placeholder="0,00" oninput="this.dataset.manuel='1'"></label>
+  </div></fieldset>`;
+}
+
+/* ---------- Vue : incidents ---------- */
+const nbFiltresInc = () => [S.fi.site, S.fi.statut, S.fi.priorite, S.fi.du, S.fi.au].filter(Boolean).length;
+function filtrerInc(base = false){
+  const F = S.fi, t = norm(F.texte).trim();
+  return S.incidents.filter(i => {
+    if (F.site && i.site_id !== F.site) return false;
+    if (F.du && i.date_signalement < F.du) return false;
+    if (F.au && i.date_signalement > F.au) return false;
+    if (t && !norm([i.titre, i.description, i.sites?.nom, i.equipements?.nom, CAT_INC[i.categorie], i.signale_par, i.entreprise, i.responsable].join(' ')).includes(t)) return false;
+    if (base) return true;
+    if (F.priorite && i.priorite !== F.priorite) return false;
+    if (F.statut === 'ouverts' ? !ouvert(i) : (F.statut && i.statut !== F.statut)) return false;
+    return true;
+  }).sort((a, b) => (ouvert(b) - ouvert(a)) || (RANG_PRIO[a.priorite] - RANG_PRIO[b.priorite])
+    || String(b.date_signalement).localeCompare(String(a.date_signalement)));
+}
+function vueIncidents(){
+  if (S.incidentsErreur === 'absent'){
+    return ongletsTravaux() + `<h1>Incidents</h1><div class="vide" style="margin-top:12px">Le module Incidents n'est pas encore installé dans la base.
+      Exécutez le script <b>migration-incidents.sql</b> dans Supabase, puis actualisez.</div>`;
+  }
+  const F = S.fi;
+  const opt = (v, l, sel) => `<option value="${esc(v)}" ${v === sel ? 'selected' : ''}>${esc(l)}</option>`;
+  return ligneMaj() + ongletsTravaux() + `<div class="entete-vue"><h1>Incidents</h1>${peutSaisir() ? `<button class="principal petit" onclick="App.formIncident()">Signaler</button>` : ''}</div>
+  ${S.incidentsErreur ? `<p class="maj erreur" role="alert">Incidents non actualisés : ${esc(S.incidentsErreur)} <button class="lien" onclick="App.actualiser()">Réessayer</button></p>` : ''}
+  <div class="compteurs" id="compteursInc"></div>
+  <div class="recherche">
+    <input type="search" id="rechercheInc" placeholder="Rechercher…" value="${esc(F.texte)}" oninput="App.filtreInc('texte', this.value)" aria-label="Rechercher un incident" autocomplete="off">
+    <button class="effacer" id="effacerRechercheInc" onclick="App.effacerRechercheInc()" ${F.texte ? '' : 'hidden'}>Effacer</button>
+  </div>
+  <details class="filtres" ${nbFiltresInc() ? 'open' : ''}>
+    <summary>Filtres<span id="nbFiltresInc"></span></summary>
+    <div class="grille-filtres">
+      <label>Bâtiment<select id="fiSite" onchange="App.filtreInc('site', this.value)">${opt('', 'Tous les bâtiments', F.site)}${S.sites.map(x => opt(x.id, x.nom, F.site)).join('')}</select></label>
+      <label>Statut<select id="fiStatut" onchange="App.filtreInc('statut', this.value)">${opt('', 'Tous', F.statut)}${opt('ouverts', 'Non résolus', F.statut)}${Object.entries(STATUTS_INC).map(([k, v]) => opt(k, v, F.statut)).join('')}</select></label>
+      <label>Priorité<select id="fiPrio" onchange="App.filtreInc('priorite', this.value)">${opt('', 'Toutes', F.priorite)}${Object.entries(PRIO).map(([k, v]) => opt(k, v, F.priorite)).join('')}</select></label>
+      <label>Signalé à partir du<input type="date" id="fiDu" value="${esc(F.du)}" onchange="App.filtreInc('du', this.value)"></label>
+      <label>Jusqu'au<input type="date" id="fiAu" value="${esc(F.au)}" onchange="App.filtreInc('au', this.value)"></label>
+    </div>
+    <button class="lien" onclick="App.effacerFiltresInc()">Réinitialiser les filtres</button>
+  </details>
+  <div id="resultatsInc" aria-live="polite"></div>`;
+}
+function carteIncident(i){
+  return `<article class="inc p-${i.priorite} ${ouvert(i) ? '' : 'ferme'}" onclick="App.ficheIncident('${i.id}')">
+    <div class="inc-tete"><span class="etiquette p-${i.priorite}">${i.priorite === 'urgente' ? 'URGENT' : 'Priorité ' + PRIO[i.priorite].toLowerCase()}</span>
+      <span class="etiquette st-${i.statut}">${STATUTS_INC[i.statut]}</span></div>
+    <h3>${esc(i.titre)}</h3>
+    <p class="sous">${esc(i.sites?.nom || '?')}${i.equipements?.nom ? `, ${esc(i.equipements.nom)}` : ''}, ${CAT_INC[i.categorie] || esc(i.categorie)}</p>
+    <p class="meta">Signalé le ${fmt(i.date_signalement)}${i.signale_par ? ` par ${esc(i.signale_par)}` : ''}${i.entreprise ? `<br>Entreprise : ${esc(i.entreprise)}` : ''}</p>
+  </article>`;
+}
+function majIncidents(){
+  const zone = $('#resultatsInc'); if (!zone) return;
+  const F = S.fi, base = filtrerInc(true), liste = filtrerInc();
+  const ind = [
+    { k:'urgents', cls:'s-retard', n:base.filter(i => i.priorite === 'urgente' && ouvert(i)).length, l:'Urgents non résolus', actif:F.priorite === 'urgente' && F.statut === 'ouverts' },
+    { k:'ouverts', cls:'s-periode', n:base.filter(ouvert).length, l:'Non résolus', actif:F.statut === 'ouverts' && !F.priorite },
+    { k:'attente', cls:'s-planifier', n:base.filter(i => i.statut === 'attente_prestataire').length, l:"En attente d'un prestataire", actif:F.statut === 'attente_prestataire' && !F.priorite },
+  ];
+  $('#compteursInc').innerHTML = ind.map(i => `<button class="compteur ${i.cls} ${i.actif ? 'actif' : ''}" onclick="App.indicateurInc('${i.k}')" aria-pressed="${i.actif}">
+    <b>${i.n}</b><span>${i.l}</span><small class="voir">${i.actif ? 'Afficher tout' : 'Voir la liste ›'}</small></button>`).join('');
+  const n = nbFiltresInc();
+  $('#nbFiltresInc').textContent = n ? `(${n} actif${n > 1 ? 's' : ''})` : '';
+  const eff = $('#effacerRechercheInc'); if (eff) eff.hidden = !F.texte;
+  [['fiSite', F.site], ['fiStatut', F.statut], ['fiPrio', F.priorite], ['fiDu', F.du], ['fiAu', F.au]].forEach(([id, v]) => { const el = $('#' + id); if (el) el.value = v; });
+  const actifs = n || F.texte;
+  let h = `<div class="bilan"><span>${liste.length} incident${liste.length > 1 ? 's' : ''}${actifs ? ` sur ${S.incidents.length}` : ''}</span></div>`;
+  if (!S.incidents.length && !S.incidentsErreur){
+    h += `<div class="vide">Aucun incident signalé.${peutSaisir() ? ` <button class="lien" onclick="App.formIncident()">Signaler un incident</button>` : ''}</div>`;
+  } else if (!liste.length){
+    h += `<div class="vide">Aucun incident ne correspond${F.texte ? ` à « ${esc(F.texte)} »` : ''}${n ? ' avec les filtres choisis' : ''}.
+      ${actifs ? `<br><button class="lien" onclick="App.effacerFiltresInc()">Réinitialiser la recherche et les filtres</button>` : ''}</div>`;
+  }
+  const groupes = [
+    ['Urgents non résolus', liste.filter(i => i.priorite === 'urgente' && ouvert(i))],
+    ['Non résolus', liste.filter(i => i.priorite !== 'urgente' && ouvert(i))],
+    ['Résolus et clôturés', liste.filter(i => !ouvert(i))],
+  ];
+  for (const [titre, l] of groupes) if (l.length) h += `<h2>${titre}</h2><div class="liste">${l.map(carteIncident).join('')}</div>`;
+  zone.innerHTML = h;
+}
+function optionsEquipInc(siteId, sel){
+  const l = S.equipements.filter(e => e.site_id === siteId && (e.actif || e.id === sel));
+  return `<option value="">Aucun / non précisé</option>` + l.map(e => `<option value="${e.id}" ${e.id === sel ? 'selected' : ''}>${esc(e.nom)}</option>`).join('');
+}
+function valeurInc(champ, v){
+  if (v === null || v === undefined || v === '') return '—';
+  if (champ === 'statut') return STATUTS_INC[v] || v;
+  if (champ === 'priorite') return PRIO[v] || v;
+  if (champ === 'categorie') return CAT_INC[v] || v;
+  if (champ === 'site_id') return S.sites.find(x => x.id === v)?.nom || 'bâtiment supprimé';
+  if (champ === 'equipement_id') return S.equipements.find(x => x.id === v)?.nom || 'équipement supprimé';
+  if (/^date_/.test(champ)) return fmt(String(v).slice(0, 10));
+  if (/_montant$/.test(champ)) return euros(v);
+  const t = String(v); return t.length > 90 ? t.slice(0, 90) + '…' : t;
+}
+function ligneJournal(h){
+  const d = new Date(h.created_at);
+  const quandTxt = `${d.toLocaleDateString('fr-FR', { day:'numeric', month:'short', year:'numeric' })} à ${heureFr(d)}`;
+  let t;
+  if (h.action === 'creation') t = 'Incident signalé';
+  else if (h.action === 'suppression') t = 'Incident supprimé';
+  else if (h.action === 'document') t = `Ajout : ${esc(h.nouvelle_valeur || 'document')} (${DOC_INC[h.champ] || esc(h.champ)})`;
+  else if (h.action === 'document_retire') t = `Document retiré : ${esc(h.ancienne_valeur || '')}`;
+  else t = `${CHAMPS_INC[h.champ] || esc(h.champ)} : ${esc(valeurInc(h.champ, h.ancienne_valeur))} → <b>${esc(valeurInc(h.champ, h.nouvelle_valeur))}</b>`;
+  return `<li>${t}<small>${quandTxt}${h.auteur_nom ? `, ${esc(h.auteur_nom)}` : ''}</small></li>`;
+}
+
+/* ---------- Vue : échéances ---------- */
+const norm = v => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const uniques = champ => [...new Set(S.echeances.map(e => (e[champ] || '').trim()).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'fr'));
+const nbFiltres = () => [S.filtreSite, S.filtres.periode, S.filtres.categorie, S.filtres.prestataire, S.filtres.reserves].filter(Boolean).length;
+
+/* Période : "retard" = date dépassée ; "planifier" = aucune date ; tranches de jours exclusives sinon */
+function dansPeriode(e, p){
+  if (!p) return true;
+  if (p === 'planifier') return !e.prochaine;
+  if (!e.prochaine) return false;
+  const j = ecart(e.prochaine);
+  if (p === 'retard') return j < 0;
+  const t = TRANCHES[p];
+  return !!t && j >= t[0] && j <= t[1];
+}
+
+/* base = site, catégorie, prestataire, recherche (sert aux indicateurs) ; sinon + période et réserves */
+function filtrer(base = false){
+  const F = S.filtres, t = norm(F.texte).trim();
+  return S.echeances.filter(e => {
+    if (S.filtreSite && e.site_id !== S.filtreSite) return false;
+    if (F.categorie && (e.categorie || '').trim() !== F.categorie) return false;
+    if (F.prestataire === '__aucun' && (e.prestataire || '').trim()) return false;
+    if (F.prestataire && F.prestataire !== '__aucun' && (e.prestataire || '').trim() !== F.prestataire) return false;
+    if (t && !norm([e.libelle, e.equipement, e.site, e.categorie, e.prestataire].join(' ')).includes(t)) return false;
+    if (base) return true;
+    if (!dansPeriode(e, F.periode)) return false;
+    if (F.reserves && !(Number(e.reserves_ouvertes) > 0)) return false;
+    return true;
+  });
+}
+const selectionAffichee = () => filtrer();
+
+function vueEcheances(){
+  if (!S.majOk && S.erreurMaj){
+    return ligneMaj() + `<p class="vide">Les données n'ont pas pu être chargées. Vérifiez la connexion puis réessayez.</p>`;
+  }
+  if (!S.echeances.length){
+    return ligneMaj() + `<div class="vide">Aucun contrôle prévu pour l'instant.${estAdmin()
+      ? ` Ajoutez un équipement, puis les contrôles qui le concernent.<br><br><button class="principal petit" onclick="App.aller('equipements')">Ajouter un équipement</button>` : ''}</div>`;
+  }
+  const F = S.filtres;
+  const opt = (v, l, sel) => `<option value="${esc(v)}" ${v === sel ? 'selected' : ''}>${esc(l)}</option>`;
+  return ligneMaj() + `<div class="compteurs" id="compteurs"></div>
+  <div class="recherche">
+    <input type="search" id="recherche" placeholder="Rechercher…" value="${esc(F.texte)}"
+      oninput="App.filtre('texte', this.value)" aria-label="Rechercher" autocomplete="off">
+    <button class="effacer" id="effacerRecherche" onclick="App.effacerRecherche()" ${F.texte ? '' : 'hidden'}>Effacer</button>
+  </div>
+  <details class="filtres" ${nbFiltres() ? 'open' : ''}>
+    <summary>Filtres<span id="nbFiltres"></span></summary>
+    <div class="grille-filtres">
+      <label>Période<select id="fPeriode" onchange="App.filtre('periode', this.value)">
+        ${opt('', 'Toutes les échéances', F.periode)}${Object.entries(PERIODES).map(([k, v]) => opt(k, v, F.periode)).join('')}
+      </select></label>
+      <label>Site<select id="fSite" onchange="App.filtreSite(this.value)">
+        ${opt('', 'Tous les sites', S.filtreSite)}${sitesActifs().map(x => opt(x.id, x.nom, S.filtreSite)).join('')}
+      </select></label>
+      <label>Catégorie<select id="fCategorie" onchange="App.filtre('categorie', this.value)">
+        ${opt('', 'Toutes les catégories', F.categorie)}${uniques('categorie').map(c => opt(c, c, F.categorie)).join('')}
+      </select></label>
+      <label>Prestataire<select id="fPrestataire" onchange="App.filtre('prestataire', this.value)">
+        ${opt('', 'Tous les prestataires', F.prestataire)}${uniques('prestataire').map(c => opt(c, c, F.prestataire)).join('')}${opt('__aucun', 'Sans prestataire', F.prestataire)}
+      </select></label>
+      <label>Réserves<select id="fReserves" onchange="App.filtre('reserves', this.value)">
+        ${opt('', 'Indifférent', F.reserves)}${opt('oui', 'Avec réserves non levées', F.reserves)}
+      </select></label>
+    </div>
+    <button class="lien" onclick="App.effacerFiltres()">Réinitialiser les filtres</button>
+  </details>
+  <div id="resultats" aria-live="polite"></div>`;
+}
+
+/* Met à jour indicateurs et liste sans reconstruire la recherche ni les filtres (pas de requête) */
+function majEcheances(){
+  const zone = $('#resultats');
+  if (!zone) return;
+  const F = S.filtres, base = filtrer(true), liste = filtrer();
+  const nbP = p => base.filter(e => dansPeriode(e, p)).length;
+  const nr = S.nbReserves || 0;
+  const ind = [
+    { k:'retard',    cls:'s-retard',    n:nbP('retard'),    l:'En retard' },
+    { k:'0-30',      cls:'s-bientot',   n:nbP('0-30'),      l:'À venir dans les 30 jours' },
+    { k:'planifier', cls:'s-planifier', n:nbP('planifier'), l:'À planifier (sans date)' },
+  ];
+  const plusTard = base.length - ind.reduce((t, i) => t + i.n, 0);
+  $('#compteurs').innerHTML = ind.map(i => { const actif = F.periode === i.k;
+    return `<button class="compteur ${i.cls} ${actif ? 'actif' : ''}" onclick="App.indicateur('${i.k}')" aria-pressed="${actif}">
+       <b>${i.n}</b><span>${i.l}</span><small class="voir">${actif ? 'Afficher tout' : 'Voir la liste ›'}</small></button>`; }).join('') +
+    `<button class="compteur s-reserves" onclick="App.indicateur('reserves')">
+       <b>${nr}</b><span>Réserve${nr > 1 ? 's' : ''} non levée${nr > 1 ? 's' : ''}</span><small class="voir">Voir les réserves ›</small></button>
+     <p class="aide" style="grid-column:1 / -1;margin:0">${base.length} contrôle${base.length > 1 ? 's' : ''} au total, dont ${plusTard} prévu${plusTard > 1 ? 's' : ''} au-delà de 30 jours.${nbFiltres() || F.texte ? ' Les réserves concernent toute la commune.' : ''}</p>`;
+  const n = nbFiltres();
+  $('#nbFiltres').textContent = n ? `(${n} actif${n > 1 ? 's' : ''})` : '';
+  const eff = $('#effacerRecherche'); if (eff) eff.hidden = !F.texte;
+  ['fPeriode','fSite','fCategorie','fPrestataire','fReserves'].forEach((id, i) => {
+    const el = $('#' + id); if (el) el.value = [F.periode, S.filtreSite, F.categorie, F.prestataire, F.reserves][i];
+  });
+
+  const groupes = Object.fromEntries(ORDRE.map(k => [k, []]));
+  liste.forEach(e => groupes[statut(e)].push(e));
+  const actifs = n || F.texte;
+  let h = `<div class="bilan"><span>${liste.length} contrôle${liste.length > 1 ? 's' : ''}${actifs ? ` sur ${S.echeances.length}` : ''}</span>
+    <span>${liste.length ? `<button class="lien" onclick="App.exportCSV(true)">Exporter</button> · ` : ''}<button class="lien" onclick="App.recap()">Récapitulatif</button></span></div>`;
+  if (!liste.length){
+    h += `<div class="vide">Aucun contrôle ne correspond${F.texte ? ` à « ${esc(F.texte)} »` : ''}${n ? ' avec les filtres choisis' : ''}.
+      ${actifs ? `<br><button class="lien" onclick="App.effacerFiltres()">Réinitialiser la recherche et les filtres</button>` : ''}</div>`;
+  }
+  for (const k of ORDRE){
+    if (!groupes[k].length) continue;
+    h += `<h2>${SECTIONS[k]}</h2><div class="liste">${groupes[k].map(carteTag).join('')}</div>`;
+  }
+  zone.innerHTML = h;
+}
+
+function carteTag(e){
+  const s = statut(e);
+  const talon = e.prochaine
+    ? `<span class="j">${dateObj(e.prochaine).getDate()}</span><span class="m">${dateObj(e.prochaine).toLocaleDateString('fr-FR', { month:'short', year:'numeric' })}</span>`
+    : `<span class="m">à planifier</span>`;
+  const r = Number(e.reserves_ouvertes) || 0;
+  return `<article class="tag s-${s}" onclick="App.fiche('${e.equipement_id}')">
+    <div class="talon">${talon}</div>
+    <div class="corps">
+      <span class="etiquette">${TITRES[s]}</span>
+      <h3>${esc(e.libelle)}</h3>
+      <p class="sous">${esc(e.equipement)}, ${esc(e.site)}${e.categorie ? `, ${esc(e.categorie)}` : ''}</p>
+      <p class="meta"><strong>${delai(e)}</strong><br>${perio(e.periodicite_valeur, e.periodicite_unite)}${e.prestataire ? `, ${esc(e.prestataire)}` : ''}</p>
+      ${r ? `<p class="alerte">${r} réserve${r > 1 ? 's' : ''} non levée${r > 1 ? 's' : ''}</p>` : ''}
+      ${peutSaisir() ? `<button class="petit" onclick="event.stopPropagation();App.saisir('${e.plan_id}')">Enregistrer un contrôle</button>` : ''}
+    </div>
+  </article>`;
+}
+
+/* ---------- Vue : équipements ---------- */
+function pireStatut(id){
+  const l = S.echeances.filter(e => e.equipement_id === id).map(statut);
+  if (!l.length) return 'aucun';
+  return ORDRE.find(k => l.includes(k));
+}
+function etiquetteEquipement(id){
+  const st = pireStatut(id);
+  return `<span class="etiquette s-${st}">${st === 'aucun' ? 'Aucun contrôle' : TITRES[st]}</span>`;
+}
+function vueEquipements(){
+  let h = ligneMaj() + `<div class="entete-vue"><h1>Équipements</h1>${estAdmin() && S.sites.length ? `<button class="principal petit" onclick="App.formEquipement()">Ajouter</button>` : ''}</div>`;
+  if (!S.sites.length) return h + `<p class="vide">Aucun site enregistré.${estAdmin() ? ' Créez un site dans l’onglet Compte.' : ''}</p>`;
+  const archive = e => !e.actif || !siteActif(S.sites.find(x => x.id === e.site_id));
+  const nbArch = S.equipements.filter(archive).length;
+  if (nbArch) h += `<p class="aide" style="margin:4px 0 0">${nbArch} équipement${nbArch > 1 ? 's' : ''} archivé${nbArch > 1 ? 's' : ''}.
+    <button class="lien" onclick="App.basculerArchives()">${S.voirArchives ? 'Masquer les archives' : 'Afficher les archives'}</button></p>`;
+  for (const s of S.sites){
+    if (!siteActif(s) && !S.voirArchives) continue;
+    const eq = S.equipements.filter(e => e.site_id === s.id && (S.voirArchives || !archive(e)));
+    h += `<h2>${esc(s.nom)}${siteActif(s) ? '' : ' <span class="etiquette s-aucun">Site archivé</span>'}</h2>`;
+    if (!eq.length){ h += `<p class="vide">Aucun équipement ${S.voirArchives ? 'enregistré' : 'en service'}.</p>`; continue; }
+    h += `<ul class="lignes">${eq.map(e => `<li onclick="App.fiche('${e.id}')">
+      <span class="pastille s-${archive(e) ? 'aucun' : pireStatut(e.id)}" aria-hidden="true"></span>
+      <div><b>${esc(e.nom)}</b><small>${esc([e.categorie, e.localisation].filter(Boolean).join(', ')) || '&nbsp;'}</small></div>
+      ${archive(e) ? '<span class="etiquette s-aucun">Archivé</span>' : etiquetteEquipement(e.id)}</li>`).join('')}</ul>`;
+  }
+  return h;
+}
+
+/* ---------- Vue : réserves ---------- */
+async function vueReserves(){
+  const liste = await q(sb.from('controles')
+    .select('*, plans(libelle, equipement_id, equipements(nom, sites(nom)))')
+    .neq('resultat', 'conforme').eq('reserve_levee', false)
+    .order('date_realisation', { ascending:true }));
+  let h = `<h1>Réserves à lever</h1>`;
+  if (!liste.length) return h + `<p class="vide">Aucune réserve en attente. Tous les contrôles avec réserves ont été traités.</p>`;
+  return h + `<div class="liste" style="margin-top:12px">${liste.map(c => `
+    <div class="bloc histo r-${c.resultat}">
+      <div class="histo-tete"><b>${esc(c.plans?.libelle)}</b><span class="res">${RESULTATS[c.resultat]}</span></div>
+      <p class="sous">${esc(c.plans?.equipements?.nom)}, ${esc(c.plans?.equipements?.sites?.nom)}</p>
+      <p>Contrôle du ${fmt(c.date_realisation)}${c.intervenant ? `, par ${esc(c.intervenant)}` : ''}</p>
+      ${c.observations ? `<p class="obs">${esc(c.observations)}</p>` : ''}
+      <div class="actions">
+        ${peutSaisir() ? `<button class="petit" onclick="App.leverReserve('${c.id}')">Lever la réserve</button>` : ''}
+        <button class="petit secondaire" onclick="App.fiche('${c.plans?.equipement_id}')">Voir l'équipement</button>
+      </div>
+    </div>`).join('')}</div>`;
+}
+
+/* ---------- Vue : compte et administration ---------- */
+async function vuePlus(){
+  const p = S.profil;
+  let h = `<h1>Compte</h1>
+  <div class="bloc" style="margin-top:12px">
+    <form onsubmit="App.enregistrerNom(event)">
+      <label>Votre nom<input name="nom" value="${esc(p.nom)}" required></label>
+      <p class="aide" style="margin:0">${esc(p.email)}, ${ROLES[p.role]}</p>
+      <div class="boutons"><button class="secondaire petit" type="submit">Enregistrer le nom</button>
+      <button class="secondaire petit" type="button" onclick="App.changerMdp()">Changer le mot de passe</button>
+      <button class="danger petit" type="button" onclick="App.deconnexion()">Se déconnecter</button></div>
+    </form>
+  </div>
+  <h2>Exports</h2>
+  <div class="bloc pile">
+    <button class="principal" onclick="App.recap()">Préparer le récapitulatif à envoyer</button>
+    <p class="aide" style="margin:0">Retards, contrôles des 30 prochains jours, contrôles sans date et réserves ouvertes, à partager par e-mail ou message.</p>
+    <button class="secondaire" onclick="App.exportICS()">Ajouter les échéances à mon agenda</button>
+    <p class="aide" style="margin:0">Fichier calendrier avec un rappel avant chaque contrôle. À refaire après des changements importants.</p>
+    <button class="secondaire" onclick="App.exportCSV()">Exporter le tableau des échéances (Excel)</button>
+  </div>`;
+  h += S.intErreur !== 'absent' && peutSaisir() ? `<h2>Entreprises et prestataires</h2><div class="bloc">
+    ${S.prestataires.length ? S.prestataires.map(x => `<div class="ligne-admin"><div><b>${esc(x.nom)}</b><small>${esc([x.contact, x.telephone, x.email].filter(Boolean).join(', ')) || '&nbsp;'}${x.actif === false ? ', inactive' : ''}</small></div>
+      ${estAdmin() ? `<button class="petit secondaire" onclick="App.formPrestataire('${x.id}')">Modifier</button>` : ''}</div>`).join('') : '<p class="aide">Aucune entreprise enregistrée.</p>'}
+    <button class="petit principal" style="margin-top:8px" onclick="App.formPrestataire()">Ajouter une entreprise</button>
+  </div>` : '';
+  if (!estAdmin()) return h;
+
+  const profils = await q(sb.from('profils').select('*').order('email'));
+  h += `<h2>Sites</h2><div class="bloc">
+    ${S.sites.map(s => { const n = S.equipements.filter(e => e.site_id === s.id).length;
+      return `<div class="ligne-admin"><div><b>${esc(s.nom)}</b><small>${n} équipement(s)${siteActif(s) ? '' : ', archivé'}</small></div>
+      <button class="petit secondaire" onclick="App.renommerSite('${s.id}')">Renommer</button>
+      <button class="petit secondaire" onclick="App.archiverSite('${s.id}', ${!siteActif(s)})">${siteActif(s) ? 'Archiver' : 'Réactiver'}</button>
+      ${n ? '' : `<button class="petit danger" onclick="App.supprimerSite('${s.id}')">Supprimer</button>`}</div>`; }).join('')}
+    <p class="aide">Un site archivé et ses équipements disparaissent des échéances ; leur historique et leurs rapports sont conservés. Un site ne peut être supprimé que s'il ne contient aucun équipement.</p>
+    <form onsubmit="App.ajouterSite(event)" style="margin-top:10px;grid-template-columns:1fr auto;align-items:end">
+      <label>Nouveau site<input name="nom" required placeholder="Église, stade, atelier…"></label>
+      <button class="principal" type="submit">Ajouter</button>
+    </form></div>
+  <h2>Utilisateurs</h2><div class="bloc">
+    ${profils.map(u => `<div class="ligne-admin"><div><b>${esc(u.nom || u.email)}</b><small>${esc(u.email)}</small></div>
+      <select onchange="App.role('${u.id}', this.value)" ${u.id === p.id ? 'disabled' : ''} aria-label="Rôle">
+        ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}
+      </select></div>`).join('')}
+    <p class="aide">Pour ajouter une personne : Supabase, Authentication, Users, « Add user ». Elle apparaît ici en lecture seule ; choisissez ensuite son rôle.</p>
+  </div>
+  <h2>Pièces jointes</h2><div class="bloc pile">
+    <button class="secondaire" onclick="App.auditDocs()">Vérifier les pièces jointes</button>
+    <p class="aide" style="margin:0">Recherche les documents en double, les fichiers introuvables et les fichiers stockés sans être rattachés à un contrôle.</p>
+  </div>
+  ${PANNES.actif ? `<h2>Mode test : pannes simulées</h2><div class="bloc pile">
+    <p class="aide" style="margin:0">Chaque panne s'applique une seule fois, au prochain envoi. Les vrais fichiers sont envoyés dans Supabase.</p>
+    <button class="secondaire" onclick="App.armerPanne('upload')">Échec de l'envoi du prochain fichier</button>
+    <button class="secondaire" onclick="App.armerPanne('document')">Fichier stocké, mais document non enregistré</button>
+    <button class="secondaire" onclick="App.armerPanne('fichier')">Échec du 2ᵉ fichier seulement</button>
+    <button class="lien" onclick="App.armerPanne('aucune')">Désarmer les pannes</button>
+  </div>` : ''}
+  <p class="aide">Les périodicités proposées pour les contrôles types sont indicatives. Faites-les valider selon la catégorie de chaque bâtiment et les préconisations des fabricants.</p>`;
+  return h;
+}
+
+/* ==================================================================
+   Actions
+   ================================================================== */
+const App = {
+  fermer(){
+    if (envoisEnCours && !confirm("Un envoi de fichiers est en cours. Fermer quand même ? Les fichiers non envoyés pourront être ajoutés plus tard depuis l'historique.")) return;
+    fermer();
+  },
+  aller(vue){ S.vue = vue; window.scrollTo(0, 0); rendre(); },
+  filtreSite(id){ S.filtreSite = id; majEcheances(); },
+  filtre(cle, valeur){ S.filtres[cle] = valeur; majEcheances(); },
+  indicateur(k){
+    if (k === 'reserves') return App.aller('reserves');
+    S.filtres.periode = S.filtres.periode === k ? '' : k;
+    majEcheances();
+    if (S.filtres.periode) $('#resultats')?.scrollIntoView({ behavior:'smooth', block:'start' });
+  },
+  effacerRecherche(){
+    S.filtres.texte = '';
+    const r = $('#recherche'); if (r){ r.value = ''; r.focus(); }
+    majEcheances();
+  },
+  effacerFiltres(){
+    S.filtreSite = '';
+    S.filtres = FILTRES_VIDES();
+    rendre();
+  },
+  async actualiser(){ if (await recharger()) toast(S.incidentsErreur && S.incidentsErreur !== 'absent' ? 'Données à jour, sauf les incidents' : 'Données à jour', !!(S.incidentsErreur && S.incidentsErreur !== 'absent')); },
+
+  async connexion(ev){
+    ev.preventDefault();
+    const f = new FormData(ev.target), b = ev.target.querySelector('button');
+    b.disabled = true;
+    try {
+      await q(sb.auth.signInWithPassword({ email:f.get('email').trim(), password:f.get('mdp') }));
+      await apresConnexion();
+    } catch {} finally { b.disabled = false; }
+  },
+  async oubli(){
+    const email = prompt('Adresse e-mail du compte :');
+    if (!email) return;
+    try {
+      await q(sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: location.origin + location.pathname }));
+      toast('Un lien de réinitialisation a été envoyé.');
+    } catch {}
+  },
+  changerMdp(recuperation = false){
+    ouvrir(tete(recuperation ? 'Choisir un nouveau mot de passe' : 'Changer le mot de passe') + `
+      <form onsubmit="App.enregistrerMdp(event)">
+        <label>Nouveau mot de passe<input name="a" type="password" minlength="8" required autocomplete="new-password"></label>
+        <label>Confirmer<input name="b" type="password" minlength="8" required autocomplete="new-password"></label>
+        <button class="principal" type="submit">Enregistrer le mot de passe</button>
+      </form>`);
+  },
+  async enregistrerMdp(ev){
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    if (f.get('a') !== f.get('b')) return toast('Les deux mots de passe sont différents.', true);
+    try {
+      await q(sb.auth.updateUser({ password:f.get('a') }));
+      fermer(); toast('Mot de passe enregistré');
+      if (!S.profil) await apresConnexion();
+    } catch {}
+  },
+  async deconnexion(){ await sb.auth.signOut(); fermer(); afficherConnexion(); },
+  async enregistrerNom(ev){
+    ev.preventDefault();
+    const nom = new FormData(ev.target).get('nom').trim();
+    try { await q(sb.from('profils').update({ nom }).eq('id', S.profil.id)); S.profil.nom = nom; toast('Nom enregistré'); } catch {}
+  },
+
+  /* Fiche équipement */
+  async fiche(id){
+    const e = S.equipements.find(x => x.id === id);
+    if (!e) return;
+    const site = S.sites.find(s => s.id === e.site_id);
+    ouvrir('<p class="chargement">Chargement…</p>');
+    let plans, hist = [];
+    try {
+      plans = await q(sb.from('plans').select('*').eq('equipement_id', id).order('libelle'));
+      if (plans.length) hist = await q(sb.from('controles').select('*, documents(*), profils(nom)')
+        .in('plan_id', plans.map(p => p.id)).order('date_realisation', { ascending:false }).limit(100));
+    } catch { return fermer(); }
+    const ech = Object.fromEntries(S.echeances.filter(x => x.equipement_id === id).map(x => [x.plan_id, x]));
+    const libPlan = Object.fromEntries(plans.map(p => [p.id, p.libelle]));
+    const infos = [['Catégorie', e.categorie], ['Marque', e.marque], ['Modèle', e.modele], ['N° de série', e.numero_serie], ['Notes', e.notes]].filter(x => x[1]);
+
+    let h = `<div class="feuille-tete"><div><h2>${esc(e.nom)}</h2><p class="sous">${esc(site?.nom)}${e.localisation ? `, ${esc(e.localisation)}` : ''}</p>${e.actif ? '' : ' <span class="etiquette s-aucun">Archivé : historique conservé</span>'}</div>
+      <button class="fermer" onclick="App.fermer()" aria-label="Fermer">✕</button></div>`;
+    if (infos.length || estAdmin()){
+      h += `<div class="bloc">${infos.length ? `<dl class="infos">${infos.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
+        ${estAdmin() ? `<div class="actions"><button class="petit secondaire" onclick="App.formEquipement('${e.id}')">Modifier l'équipement</button>
+          <button class="petit secondaire" onclick="App.archiverEquipement('${e.id}', ${!e.actif})">${e.actif ? 'Archiver (retiré du service)' : 'Remettre en service'}</button></div>` : ''}</div>`;
+    }
+    h += `<h2>Contrôles prévus</h2>`;
+    if (!plans.length) h += `<p class="vide">Aucun contrôle prévu pour cet équipement.</p>`;
+    for (const p of plans){
+      const x = ech[p.id], st = x ? statut(x) : 'aucun';
+      h += `<div class="bloc plan s-${st}">
+        <div class="plan-tete"><b>${esc(p.libelle)}</b><span class="badge">${!x ? 'désactivé' : x.prochaine ? fmt(x.prochaine) : 'à planifier'}</span></div>
+        <p class="meta">${perio(p.periodicite_valeur, p.periodicite_unite)}${x ? `, ${delai(x).toLowerCase()}` : ''}
+        ${p.prestataire ? `<br>${esc(p.prestataire)}${p.contact ? `, ${esc(p.contact)}` : ''}` : ''}</p>
+        <div class="actions">
+          ${peutSaisir() && x ? `<button class="petit" onclick="App.saisir('${p.id}')">Enregistrer un contrôle</button>` : ''}
+          ${estAdmin() ? `<button class="petit secondaire" onclick="App.formPlan('${e.id}','${p.id}')">Modifier</button>` : ''}
+        </div></div>`;
+    }
+    if (estAdmin()) h += `<button class="principal" style="width:100%" onclick="App.formPlan('${e.id}')">Ajouter un contrôle prévu</button>`;
+
+    if (S.incidentsErreur !== 'absent'){
+      const incEq = S.incidents.filter(x => x.equipement_id === id && ouvert(x));
+      h += `<h2>Incidents en cours</h2>`;
+      h += incEq.length ? `<div class="liste">${incEq.map(carteIncident).join('')}</div>` : `<p class="vide">Aucun incident en cours.</p>`;
+      if (peutSaisir()) h += `<button class="secondaire" style="width:100%;margin-top:8px" onclick="App.formIncident(null, { site_id:'${e.site_id}', equipement_id:'${e.id}' })">Signaler un incident sur cet équipement</button>`;
+    }
+    h += `<h2>Historique</h2>`;
+    if (!hist.length) h += `<p class="vide">Aucun contrôle enregistré.</p>`;
+    for (const c of hist){
+      h += `<div class="bloc histo r-${c.resultat}">
+        <div class="histo-tete"><b>${fmt(c.date_realisation)}</b><span class="res">${RESULTATS[c.resultat]}</span></div>
+        <p>${esc(libPlan[c.plan_id])}${c.intervenant ? `, par ${esc(c.intervenant)}` : ''}</p>
+        ${c.observations ? `<p class="obs">${esc(c.observations)}</p>` : ''}
+        ${c.resultat !== 'conforme' ? (c.reserve_levee ? `<p class="leve">Réserve levée le ${fmt(c.date_levee)}</p>` : `<p class="alerte">Réserve non levée</p>`) : ''}
+        ${(c.documents || []).map(d => `<button class="doc" onclick="App.ouvrirDoc('${encodeURIComponent(d.chemin)}')">📎 ${esc(d.nom || 'Document')}</button>`).join('')}
+        ${peutSaisir() ? `<div class="actions"><button class="petit secondaire" onclick="App.ajouterDoc('${c.id}','${e.id}')">Ajouter un document</button></div>` : ''}
+        <p class="discret">Saisi par ${esc(c.profils?.nom || 'un utilisateur supprimé')}</p>
+        ${estAdmin() ? `<button class="lien danger" onclick="App.supprimerControle('${c.id}','${e.id}')">Supprimer ce contrôle</button>` : ''}
+      </div>`;
+    }
+    $('#modalContenu').innerHTML = h;
+  },
+
+  async ouvrirDoc(chemin, bucket = 'rapports'){
+    const w = window.open('', '_blank');
+    try {
+      const d = await q(sb.storage.from(bucket).createSignedUrl(decodeURIComponent(chemin), 3600));
+      if (w) w.location = d.signedUrl; else location.href = d.signedUrl;
+    } catch { if (w) w.close(); }
+  },
+
+  /* Équipements */
+  formEquipement(id){
+    const e = id ? S.equipements.find(x => x.id === id) : { site_id:S.filtreSite, actif:true };
+    ouvrir(tete(id ? "Modifier l'équipement" : 'Nouvel équipement') + `
+      <form onsubmit="App.enregistrerEquipement(event,'${id || ''}')">
+        <label>Site<select name="site_id" required>${S.sites.filter(s => siteActif(s) || s.id === e.site_id).map(s => `<option value="${s.id}" ${s.id === e.site_id ? 'selected' : ''}>${esc(s.nom)}</option>`).join('')}</select></label>
+        <label>Nom<input name="nom" required value="${esc(e.nom)}" placeholder="Chaudière gaz, DAE du hall…"></label>
+        <label>Catégorie<input name="categorie" list="cats" value="${esc(e.categorie)}"></label>
+        <datalist id="cats">${CATEGORIES.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+        <label>Emplacement<input name="localisation" value="${esc(e.localisation)}" placeholder="Chaufferie, hall d'entrée…"></label>
+        <div class="deux"><label>Marque<input name="marque" value="${esc(e.marque)}"></label><label>Modèle<input name="modele" value="${esc(e.modele)}"></label></div>
+        <label>Numéro de série<input name="numero_serie" value="${esc(e.numero_serie)}"></label>
+        <label>Notes<textarea name="notes" rows="3">${esc(e.notes)}</textarea></label>
+        <div class="boutons"><button class="principal" type="submit">Enregistrer</button>
+          ${id ? `<button type="button" class="danger" onclick="App.supprimerEquipement('${id}')">Supprimer</button>` : ''}</div>
+      </form>`);
+  },
+  async enregistrerEquipement(ev, id){
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    const d = {};
+    ['site_id','nom','categorie','localisation','marque','modele','numero_serie','notes'].forEach(k => d[k] = vide((f.get(k) || '').trim()));
+    try {
+      const r = id ? await q(sb.from('equipements').update(d).eq('id', id).select().single())
+                   : await q(sb.from('equipements').insert(d).select().single());
+      toast('Équipement enregistré');
+      await recharger();
+      App.fiche(r.id);
+    } catch {}
+  },
+  async archiverEquipement(id, remettre){
+    if (!remettre && !confirm("Archiver cet équipement ? Il n'apparaîtra plus dans les échéances. Son historique et ses rapports sont conservés et il pourra être remis en service.")) return;
+    try {
+      await q(sb.from('equipements').update({ actif:!!remettre }).eq('id', id));
+      toast(remettre ? 'Équipement remis en service' : 'Équipement archivé');
+      await recharger(); App.fiche(id);
+    } catch {}
+  },
+  /* Suppression réservée aux équipements sans aucun contrôle enregistré */
+  async supprimerEquipement(id){
+    try {
+      const plans = await q(sb.from('plans').select('id').eq('equipement_id', id));
+      const n = await nbControles(plans.map(p => p.id));
+      if (n){
+        if (confirm(`Cet équipement a ${n} contrôle${n > 1 ? 's' : ''} enregistré${n > 1 ? 's' : ''} : il ne peut pas être supprimé. L'archiver à la place ?`)) App.archiverEquipement(id, false);
+        return;
+      }
+      if (!confirm("Supprimer définitivement cet équipement ? Aucun contrôle n'a été enregistré.")) return;
+      await q(sb.from('equipements').delete().eq('id', id));
+      fermer(); toast('Équipement supprimé'); await recharger();
+    } catch {}
+  },
+  basculerArchives(){ S.voirArchives = !S.voirArchives; rendre(); },
+
+  /* Contrôles prévus */
+  async formPlan(eqId, planId){
+    let p = { periodicite_valeur:1, periodicite_unite:'an', rappel_jours:30, obligatoire:true, actif:true };
+    if (planId){ try { p = await q(sb.from('plans').select('*').eq('id', planId).single()); } catch { return; } }
+    const e = S.equipements.find(x => x.id === eqId);
+    const modeles = MODELES.filter(m => !e?.categorie || m.cat === e.categorie);
+    const liste = modeles.length ? modeles : MODELES;
+    ouvrir(tete(planId ? 'Modifier le contrôle prévu' : 'Nouveau contrôle prévu') + `
+      <p class="sous" style="margin:-6px 0 12px">${esc(e?.nom)}</p>
+      <form onsubmit="App.enregistrerPlan(event,'${eqId}','${planId || ''}')">
+        ${planId ? '' : `<label>Contrôle type<select onchange="App.appliquerModele(this)">
+          <option value="">Choisir un modèle (facultatif)</option>
+          ${liste.map(m => `<option value="${MODELES.indexOf(m)}">${esc(m.cat)} : ${esc(m.libelle)}</option>`).join('')}
+        </select></label>`}
+        <label>Intitulé du contrôle<input name="libelle" required value="${esc(p.libelle)}"></label>
+        <div class="deux">
+          <label>Tous les<input name="periodicite_valeur" type="number" min="1" required value="${p.periodicite_valeur}"></label>
+          <label>&nbsp;<select name="periodicite_unite">${['jour','semaine','mois','an'].map(u => `<option value="${u}" ${p.periodicite_unite === u ? 'selected' : ''}>${{ jour:'jour(s)', semaine:'semaine(s)', mois:'mois', an:'an(s)' }[u]}</option>`).join('')}</select></label>
+        </div>
+        <label>Date du premier contrôle attendu<input name="date_depart" type="date" value="${esc(p.date_depart)}">
+          <span class="aide">Sert uniquement tant qu'aucun contrôle n'a été enregistré. Pour reprendre l'historique, enregistrez plutôt le dernier contrôle réalisé.</span></label>
+        <label>Prestataire<input name="prestataire" value="${esc(p.prestataire)}"></label>
+        <label>Contact du prestataire<input name="contact" value="${esc(p.contact)}" placeholder="Téléphone, e-mail"></label>
+        <label>Prévenir combien de jours avant<input name="rappel_jours" type="number" min="0" value="${p.rappel_jours}"></label>
+        <label class="case"><input type="checkbox" name="obligatoire" ${p.obligatoire ? 'checked' : ''}> Contrôle réglementaire obligatoire</label>
+        <label>Notes<textarea name="notes" rows="2">${esc(p.notes)}</textarea></label>
+        ${planId ? `<label class="case"><input type="checkbox" name="actif" ${p.actif ? 'checked' : ''}> Contrôle actif</label>` : ''}
+        <div class="boutons"><button class="principal" type="submit">Enregistrer</button>
+          ${planId ? `<button type="button" class="danger" onclick="App.supprimerPlan('${planId}','${eqId}')">Supprimer</button>` : ''}</div>
+        <button type="button" class="lien" onclick="App.fiche('${eqId}')">Retour à l'équipement</button>
+      </form>`);
+  },
+  appliquerModele(sel){
+    const m = MODELES[sel.value]; if (!m) return;
+    const f = sel.form;
+    f.libelle.value = m.libelle; f.periodicite_valeur.value = m.v; f.periodicite_unite.value = m.u;
+  },
+  async enregistrerPlan(ev, eqId, planId){
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    const d = {
+      equipement_id: eqId,
+      libelle: f.get('libelle').trim(),
+      periodicite_valeur: parseInt(f.get('periodicite_valeur'), 10),
+      periodicite_unite: f.get('periodicite_unite'),
+      date_depart: vide(f.get('date_depart')),
+      prestataire: vide(f.get('prestataire').trim()),
+      contact: vide(f.get('contact').trim()),
+      rappel_jours: parseInt(f.get('rappel_jours') || '30', 10),
+      obligatoire: f.get('obligatoire') === 'on',
+      notes: vide(f.get('notes').trim()),
+    };
+    if (planId) d.actif = f.get('actif') === 'on';
+    try {
+      if (planId) await q(sb.from('plans').update(d).eq('id', planId));
+      else await q(sb.from('plans').insert(d));
+      toast('Contrôle prévu enregistré');
+      await recharger();
+      App.fiche(eqId);
+    } catch {}
+  },
+  async supprimerPlan(planId, eqId){
+    try {
+      const n = await nbControles([planId]);
+      if (n) return alert(`Ce contrôle prévu a ${n} contrôle${n > 1 ? 's' : ''} enregistré${n > 1 ? 's' : ''} : il ne peut pas être supprimé. Décochez « Contrôle actif » pour l'archiver en conservant l'historique.`);
+      if (!confirm('Supprimer ce contrôle prévu ? Aucun contrôle n’a été enregistré.')) return;
+      await q(sb.from('plans').delete().eq('id', planId)); toast('Contrôle prévu supprimé'); await recharger(); App.fiche(eqId);
+    } catch {}
+  },
+
+  /* Saisie d'un contrôle réalisé */
+  saisir(planId){
+    const x = S.echeances.find(e => e.plan_id === planId);
+    if (!x) return;
+    ouvrir(tete('Enregistrer un contrôle') + `
+      <p style="margin:-6px 0 14px"><b>${esc(x.libelle)}</b><br><span class="sous">${esc(x.equipement)}, ${esc(x.site)}</span></p>
+      <form data-id="${nouvelId()}" onsubmit="App.enregistrerControle(event,'${planId}','${x.equipement_id}')">
+        <label>Date du contrôle<input type="date" name="date_realisation" required value="${aujourdhui()}" max="${aujourdhui()}"></label>
+        <label>Intervenant<input name="intervenant" value="${esc(x.prestataire)}"></label>
+        <fieldset><legend>Résultat</legend>
+          ${Object.entries(RESULTATS).map(([k, v], i) => `<label class="choix r-${k}"><input type="radio" name="resultat" value="${k}" ${i === 0 ? 'checked' : ''}>${v}</label>`).join('')}
+        </fieldset>
+        <label>Observations<textarea name="observations" rows="3" placeholder="Réserves, pièces changées, remarques…"></textarea></label>
+        <label>Rapport ou photos<input type="file" name="fichiers" multiple accept="image/*,application/pdf">
+          <span class="aide">Photographiez le rapport ou joignez le PDF du prestataire. Ils pourront aussi être ajoutés plus tard.</span></label>
+        <ul class="etat-envoi" hidden></ul>
+        <div class="boutons"><button class="principal" type="submit">Enregistrer le contrôle</button></div>
+        <button type="button" class="secondaire" data-abandon hidden onclick="App.abandonnerEnvoi(this,'')">Terminer sans les fichiers restants</button>
+      </form>`);
+  },
+  async enregistrerControle(ev, planId, eqId){
+    ev.preventDefault();
+    const form = ev.target, id = form.dataset.id;
+    const b = form.querySelector('button[type=submit]'), zone = form.querySelector('.etat-envoi'), abandon = form.querySelector('[data-abandon]');
+    const e = ENVOIS[id] ??= { cree:false, lot:nouvelId().slice(0, 8), entrees:[] };
+    b.disabled = true; abandon.hidden = true;
+    try {
+      /* Étape 1 : création du contrôle, une seule fois (identifiant fixé à l'ouverture du formulaire) */
+      if (!e.cree){
+        e.entrees = preparer(form.fichiers.files);
+        const f = new FormData(form), date = f.get('date_realisation');
+        b.textContent = 'Vérification…';
+        const deja = await q(sb.from('controles').select('id').eq('plan_id', planId).eq('date_realisation', date).neq('id', id).limit(1));
+        if (deja.length && !confirm(`Un contrôle est déjà enregistré pour le ${fmt(date)}. En créer un second ?`)){
+          b.disabled = false; b.textContent = 'Enregistrer le contrôle'; return;
+        }
+        b.textContent = 'Enregistrement du contrôle…';
+        const { error } = await sb.from('controles').insert({
+          id, plan_id: planId, date_realisation: date,
+          intervenant: vide(f.get('intervenant').trim()),
+          resultat: f.get('resultat'),
+          observations: vide(f.get('observations').trim()),
+        });
+        /* Après une erreur, on ne suppose rien : on vérifie que CE contrôle existe réellement
+           (cas d'une réponse perdue alors que l'enregistrement a abouti). Sinon, l'erreur est affichée. */
+        if (error && !(await verifierControle(id, planId))) throw error;
+        e.cree = true;
+        form.querySelectorAll('input, textarea, select').forEach(x => x.disabled = true);
+      }
+      /* Étape 2 : pièces jointes, reprises là où elles se sont arrêtées,
+         uniquement si le contrôle existe bien dans la base */
+      else if (!(await verifierControle(id, planId))){
+        e.cree = false;
+        form.querySelectorAll('input, textarea, select').forEach(x => x.disabled = false);
+        throw new Error("Ce contrôle n'existe plus dans la base. Vérifiez les informations puis enregistrez-le à nouveau.");
+      }
+      const restants = await envoyerFichiers(id, e.lot, e.entrees, b, zone);
+      if (restants){
+        b.disabled = false;
+        b.textContent = `Reprendre l'envoi (${restants} fichier${restants > 1 ? 's' : ''})`;
+        abandon.hidden = false;
+        toast("Contrôle enregistré, mais certains fichiers n'ont pas été envoyés.", true);
+        recharger();
+        return;
+      }
+      delete ENVOIS[id];
+      fermer(); toast('Contrôle enregistré');
+      await recharger();
+    } catch (err){
+      toast(traduire(err), true);
+      b.disabled = false;
+      b.textContent = e.cree ? "Reprendre l'envoi" : "Réessayer l'enregistrement";
+    }
+  },
+  async abandonnerEnvoi(bouton, eqId, incId, intId){
+    const e = ENVOIS[bouton.form.dataset.id];
+    const isoles = (e?.entrees || []).filter(en => en.stocke && en.etat !== 'ok').map(en => en.chemin);
+    if (isoles.length) await sb.storage.from(e?.cible?.bucket || 'rapports').remove(isoles).catch(() => {});  // sinon : repérés par la vérification
+    delete ENVOIS[bouton.form.dataset.id];
+    if (incId){ toast("Fichiers non envoyés : vous pourrez les ajouter depuis la fiche de l'incident."); await chargerIncidents(); return App.ficheIncident(incId); }
+    if (intId){ toast("Fichiers non envoyés : vous pourrez les ajouter depuis la fiche de l'intervention."); return App.ficheIntervention(intId); }
+    toast("Fichiers non envoyés : ajoutez-les plus tard depuis l'historique de l'équipement.");
+    if (eqId) return App.fiche(eqId);
+    fermer(); await recharger();
+  },
+  ajouterDoc(controleId, eqId){
+    ouvrir(tete('Ajouter un document') + `
+      <form data-id="${nouvelId()}" onsubmit="App.enregistrerDocs(event,'${controleId}','${eqId}')">
+        <label>Compte rendu ou photos<input type="file" name="fichiers" multiple required accept="image/*,application/pdf">
+          <span class="aide">PDF reçu de la société, ou photos du rapport papier.</span></label>
+        <ul class="etat-envoi" hidden></ul>
+        <div class="boutons"><button class="principal" type="submit">Ajouter le document</button></div>
+        <button type="button" class="secondaire" data-abandon hidden onclick="App.abandonnerEnvoi(this,'${eqId}')">Abandonner les fichiers restants</button>
+        <button type="button" class="lien" onclick="App.fiche('${eqId}')">Retour à l'équipement</button>
+      </form>`);
+  },
+  async enregistrerDocs(ev, controleId, eqId){
+    ev.preventDefault();
+    const form = ev.target, cle = form.dataset.id;
+    const b = form.querySelector('button[type=submit]'), zone = form.querySelector('.etat-envoi'), abandon = form.querySelector('[data-abandon]');
+    const e = ENVOIS[cle] ??= { lot:cle.slice(0, 8), entrees:preparer(form.fichiers.files) };
+    form.fichiers.disabled = true; b.disabled = true; abandon.hidden = true;
+    try {
+      if (!(await verifierControle(controleId))) throw new Error("Ce contrôle n'existe plus dans la base. Aucun document n'a été envoyé.");
+    } catch (err){
+      toast(traduire(err), true); b.disabled = false; b.textContent = 'Réessayer'; return;
+    }
+    const restants = await envoyerFichiers(controleId, e.lot, e.entrees, b, zone);
+    if (restants){
+      b.disabled = false;
+      b.textContent = `Reprendre l'envoi (${restants} fichier${restants > 1 ? 's' : ''})`;
+      abandon.hidden = false;
+      toast("Certains fichiers n'ont pas été envoyés.", true);
+      return;
+    }
+    delete ENVOIS[cle];
+    toast(e.entrees.length > 1 ? 'Documents ajoutés' : 'Document ajouté');
+    App.fiche(eqId);
+  },
+  async supprimerControle(id, eqId){
+    if (!confirm('Supprimer définitivement ce contrôle et ses pièces jointes ?')) return;
+    try {
+      const docs = await q(sb.from('documents').select('chemin').eq('controle_id', id));
+      if (docs.length) await q(sb.storage.from('rapports').remove(docs.map(d => d.chemin)));
+      await q(sb.from('controles').delete().eq('id', id));
+      toast('Contrôle supprimé');
+      await recharger(); App.fiche(eqId);
+    } catch {}
+  },
+  leverReserve(id){
+    ouvrir(tete('Lever la réserve') + `
+      <form onsubmit="App.enregistrerLevee(event,'${id}')">
+        <label>Date de levée<input type="date" name="date_levee" required value="${aujourdhui()}" max="${aujourdhui()}"></label>
+        <button class="principal" type="submit">Lever la réserve</button>
+      </form>`);
+  },
+  async enregistrerLevee(ev, id){
+    ev.preventDefault();
+    try {
+      await q(sb.from('controles').update({ reserve_levee:true, date_levee:new FormData(ev.target).get('date_levee') }).eq('id', id));
+      fermer(); toast('Réserve levée'); await recharger();
+    } catch {}
+  },
+
+  /* Administration */
+  async ajouterSite(ev){
+    ev.preventDefault();
+    const nom = new FormData(ev.target).get('nom').trim();
+    try { await q(sb.from('sites').insert({ nom, ordre:S.sites.length + 1 })); toast('Site ajouté'); await recharger(); } catch {}
+  },
+  async renommerSite(id){
+    const s = S.sites.find(x => x.id === id);
+    const nom = prompt('Nouveau nom du site :', s?.nom || '');
+    if (!nom || !nom.trim()) return;
+    try { await q(sb.from('sites').update({ nom:nom.trim() }).eq('id', id)); toast('Site renommé'); await recharger(); } catch {}
+  },
+  async archiverSite(id, reactiver){
+    const n = S.equipements.filter(e => e.site_id === id).length;
+    if (!reactiver && !confirm(`Archiver ce site${n ? ` et ses ${n} équipement(s)` : ''} ? Ils n'apparaîtront plus dans les échéances ; l'historique et les rapports sont conservés.`)) return;
+    try { await q(sb.from('sites').update({ actif:!!reactiver }).eq('id', id)); toast(reactiver ? 'Site réactivé' : 'Site archivé'); await recharger(); } catch {}
+  },
+  async supprimerSite(id){
+    const n = S.equipements.filter(e => e.site_id === id).length;
+    if (n) return alert(`Ce site contient ${n} équipement(s) : il ne peut pas être supprimé. Archivez-le pour conserver l'historique.`);
+    if (!confirm('Supprimer ce site vide ?')) return;
+    try { await q(sb.from('sites').delete().eq('id', id)); toast('Site supprimé'); await recharger(); } catch {}
+  },
+  /* ================= Module Interventions ================= */
+  sousVue(k){ S.sousVue = k; window.scrollTo(0, 0); rendre(); },
+  filtreInt(cle, v){ S.fit[cle] = v; majInterventions(); },
+  effacerFiltresInt(){ S.fit = FIT_VIDES(); rendre(); },
+  indicateurInt(k){
+    S.fit.statut = S.fit.statut === k ? '' : k; majInterventions();
+    if (S.fit.statut) $('#resultatsInt')?.scrollIntoView({ behavior:'smooth', block:'start' });
+  },
+  calculTTC(form, cle){
+    const ttc = form[cle + '_ttc'];
+    if (ttc.dataset.manuel === '1' && ttc.value) return;          // TTC saisi à la main : on ne l'écrase pas
+    try {
+      const ht = lireMontant(form[cle + '_ht'].value, 'HT');
+      ttc.value = ht == null ? '' : (Math.round(ht * (1 + Number(form[cle + '_tva'].value)) * 100) / 100).toFixed(2).replace('.', ',');
+      ttc.dataset.manuel = '';
+    } catch {}
+  },
+  majIncidentInt(sel){
+    const f = sel.form, inc = S.incidents.find(x => x.id === sel.value);
+    f.site_id.disabled = !!inc;
+    if (inc){ f.site_id.value = inc.site_id; f.equipement_id.innerHTML = optionsEquipInc(inc.site_id, inc.equipement_id || ''); }
+  },
+
+  formIntervention(id, pre = {}){
+    if (!peutSaisir()) return toast('Votre rôle ne permet pas de créer ou modifier une intervention.', true);
+    if (S.intErreur === 'absent') return toast("Le module Interventions n'est pas installé dans la base.", true);
+    const x = id ? S.interventions.find(i => i.id === id) : { statut:'a_planifier', incident_id:pre.incident_id || '', site_id:pre.site_id || S.fit.site || '', equipement_id:pre.equipement_id || '' };
+    if (!x) return toast('Intervention introuvable. Actualisez la liste.', true);
+    if (id && !intOuverte(x) && !estAdmin()) return toast('Intervention terminée ou annulée : seul un administrateur peut la modifier.', true);
+    const inc = S.incidents.find(i => i.id === x.incident_id);
+    if (inc && !id){ x.site_id = inc.site_id; x.equipement_id = x.equipement_id || inc.equipement_id || ''; }
+    const opt = (v, l, sel) => `<option value="${esc(v)}" ${v === sel ? 'selected' : ''}>${esc(l)}</option>`;
+    const incidents = S.incidents.filter(i => ouvert(i) || i.id === x.incident_id);
+    const sites = S.sites.filter(i => siteActif(i) || i.id === x.site_id);
+    const statuts = Object.entries(STATUTS_INT).filter(([k]) => k !== 'termine' || x.statut === 'termine');
+    ouvrir(tete(id ? "Modifier l'intervention" : 'Nouvelle intervention') + `
+      <form data-id="${id || nouvelId()}" onsubmit="App.enregistrerIntervention(event, ${id ? `'${id}'` : 'null'})">
+        <label>Incident lié<select name="incident_id" onchange="App.majIncidentInt(this)">${opt('', 'Aucun : intervention préventive', x.incident_id || '')}${incidents.map(i => opt(i.id, `${i.titre} (${i.sites?.nom || '?'})`, x.incident_id)).join('')}</select>
+          <span class="aide">Si un incident est choisi, le bâtiment est repris de l'incident.</span></label>
+        <label>Bâtiment<select name="site_id" required ${inc ? 'disabled' : ''} onchange="App.majEquipInc(this)">${opt('', 'Choisir…', x.site_id)}${sites.map(i => opt(i.id, i.nom, x.site_id)).join('')}</select></label>
+        <label>Équipement (facultatif)<select name="equipement_id">${optionsEquipInc(x.site_id, x.equipement_id || '')}</select></label>
+        <label>Objet<input name="objet" required maxlength="150" value="${esc(x.objet)}" placeholder="Remplacement du circulateur…"></label>
+        <label>Description<textarea name="description" rows="3">${esc(x.description)}</textarea></label>
+        <div class="deux">
+          <label>Responsable<select name="responsable_id">${opt('', 'Non attribué', x.responsable_id || '')}${responsables().map(u => opt(u.id, u.nom || u.email, x.responsable_id)).join('')}</select></label>
+          <label>Statut<select name="statut">${statuts.map(([k, v]) => opt(k, v, x.statut)).join('')}</select></label>
+        </div>
+        <label>Entreprise<select name="prestataire_id">${opt('', 'Aucune / à choisir', x.prestataire_id || '')}${S.prestataires.filter(i => i.actif !== false || i.id === x.prestataire_id).map(i => opt(i.id, i.nom, x.prestataire_id)).join('')}</select>
+          <button type="button" class="lien" onclick="App.formPrestataire(null, this.form)">+ Nouvelle entreprise</button></label>
+        <div class="deux"><label>Début prévu<input type="date" name="date_prevue_debut" value="${esc(x.date_prevue_debut)}"></label>
+          <label>Fin prévue<input type="date" name="date_prevue_fin" value="${esc(x.date_prevue_fin)}"></label></div>
+        <div class="deux"><label>Début réel<input type="date" name="date_debut_reelle" value="${esc(x.date_debut_reelle)}"></label>
+          <label>Fin réelle<input type="date" name="date_fin_reelle" value="${esc(x.date_fin_reelle)}"></label></div>
+        ${MONTANTS.map(([k, l, a]) => champMontant(k, `${l} <small class="aide">(${a})</small>`, x)).join('')}
+        <p class="aide" style="margin:0">La clôture (« Terminé ») se fera avec un compte rendu, à l'étape suivante du module.</p>
+        <div class="boutons"><button class="principal" type="submit">${id ? 'Enregistrer' : "Créer l'intervention"}</button></div>
+        <button type="button" class="lien" onclick="${id ? `App.ficheIntervention('${id}')` : 'App.fermer()'}">Annuler</button>
+      </form>`);
+  },
+  async enregistrerIntervention(ev, id){
+    ev.preventDefault();
+    const form = ev.target, f = new FormData(form), b = form.querySelector('button[type=submit]');
+    let d;
+    try {
+      const inc = S.incidents.find(i => i.id === f.get('incident_id'));
+      d = {
+        incident_id: vide(f.get('incident_id')),
+        site_id: inc ? inc.site_id : f.get('site_id'),
+        equipement_id: vide(f.get('equipement_id')),
+        objet: (f.get('objet') || '').trim(), description: vide((f.get('description') || '').trim()),
+        responsable_id: vide(f.get('responsable_id')), prestataire_id: vide(f.get('prestataire_id')),
+        statut: f.get('statut'),
+        date_prevue_debut: vide(f.get('date_prevue_debut')), date_prevue_fin: vide(f.get('date_prevue_fin')),
+        date_debut_reelle: vide(f.get('date_debut_reelle')), date_fin_reelle: vide(f.get('date_fin_reelle')),
+      };
+      if (!d.objet) throw new Error("L'objet est obligatoire.");
+      if (!d.site_id) throw new Error('Choisissez un bâtiment.');
+      if (d.date_prevue_debut && d.date_prevue_fin && d.date_prevue_fin < d.date_prevue_debut) throw new Error('La fin prévue précède le début prévu.');
+      if (d.date_debut_reelle && d.date_fin_reelle && d.date_fin_reelle < d.date_debut_reelle) throw new Error('La fin réelle précède le début réel.');
+      for (const [k, l] of MONTANTS){
+        d[k + '_ht'] = lireMontant(f.get(k + '_ht'), `${l} HT`);
+        d[k + '_ttc'] = lireMontant(f.get(k + '_ttc'), `${l} TTC`);
+        if (d[k + '_ht'] != null && d[k + '_ttc'] != null && d[k + '_ttc'] < d[k + '_ht']) throw new Error(`${l} : le montant TTC doit être supérieur ou égal au HT.`);
+      }
+      if (d.statut === 'annule' && (!id || S.interventions.find(i => i.id === id)?.statut !== 'annule')
+          && !confirm('Annuler cette intervention ? Seul un administrateur pourra ensuite la rouvrir.')) return;
+    } catch (err){ return toast(traduire(err), true); }
+    b.disabled = true; b.textContent = 'Enregistrement…';
+    const cle = form.dataset.id;
+    try {
+      if (id) await majIntervention(id, d);
+      else {
+        const { error } = await sb.from('interventions').insert({ id:cle, ...d });
+        if (error && !(await verifierIntervention(cle))) throw error;     // réponse perdue mais créée : pas de doublon
+      }
+      toast(id ? 'Intervention modifiée' : 'Intervention créée');
+      const avant = id ? S.interventions.find(i => i.id === id)?.statut : null;
+      await chargerInterventions(); if (S.vue === 'incidents' && S.sousVue === 'interventions') majInterventions();
+      if (d.statut === 'en_cours' && avant !== 'en_cours') await App.proposerStatutIncident(d.incident_id, 'en_cours');
+      App.ficheIntervention(id || cle);
+    } catch (err){
+      toast(traduire(err), true); b.disabled = false; b.textContent = id ? 'Enregistrer' : "Réessayer l'enregistrement";
+    }
+  },
+
+  async ficheIntervention(id){
+    const x = S.interventions.find(i => i.id === id);
+    if (!x){ toast('Intervention introuvable. Actualisez la liste.', true); return; }
+    ouvrir(tete(esc(x.objet)) + '<p class="chargement">Chargement…</p>');
+    let hist;
+    let docs = [], comms = [], urls = {};
+    try {
+      [hist, docs, comms] = await Promise.all([
+        q(sb.from('intervention_historique').select('*').eq('intervention_id', id).order('created_at', { ascending:false }).order('id', { ascending:false })),
+        q(sb.from('intervention_documents').select('*').eq('intervention_id', id).order('created_at')),
+        q(sb.from('intervention_commentaires').select('*').eq('intervention_id', id).order('created_at')),
+      ]);
+      const images = docs.filter(d => (d.mime || '').startsWith('image/'));
+      if (images.length){
+        const { data } = await sb.storage.from('interventions').createSignedUrls(images.map(d => d.chemin), 3600);
+        (data || []).forEach(u => { if (u.signedUrl) urls[u.path] = u.signedUrl; });
+      }
+    } catch { return fermer(); }
+    const modifiable = peutSaisir() && (intOuverte(x) || estAdmin());
+    const p = S.prestataires.find(i => i.id === x.prestataire_id);
+    const inc = S.incidents.find(i => i.id === x.incident_id);
+    const infos = [['Bâtiment', esc(x.sites?.nom || '?')], ['Équipement', esc(x.equipements?.nom || '')],
+      ['Responsable', esc(nomProfil(x.responsable_id) || 'Non attribué')],
+      ['Début prévu', x.date_prevue_debut && fmt(x.date_prevue_debut)], ['Fin prévue', x.date_prevue_fin && fmt(x.date_prevue_fin)],
+      ['Début réel', x.date_debut_reelle && fmt(x.date_debut_reelle)], ['Fin réelle', x.date_fin_reelle && fmt(x.date_fin_reelle)]].filter(i => i[1]);
+    let h = `<div class="feuille-tete"><div><h2>${esc(x.objet)}</h2>
+      <div class="inc-tete" style="margin-top:6px"><span class="etiquette si-${x.statut}">${STATUTS_INT[x.statut]}</span>
+      <span class="etiquette s-aucun">${x.nature === 'corrective' ? 'Corrective' : 'Préventive'}</span></div></div>
+      <button class="fermer" onclick="App.fermer()" aria-label="Fermer">✕</button></div>`;
+    h += `<div class="bloc"><dl class="infos">${infos.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+      ${x.description ? `<p class="obs" style="margin:10px 0 0">${esc(x.description)}</p>` : ''}
+      ${modifiable ? `<div class="actions"><button class="petit secondaire" onclick="App.formIntervention('${x.id}')">Modifier</button>
+        ${estAdmin() && x.statut === 'a_planifier' ? `<button class="petit danger" onclick="App.supprimerIntervention('${x.id}')">Supprimer</button>` : ''}</div>` : ''}</div>`;
+    if (x.incident_id) h += `<div class="bloc"><b>Incident lié</b><p style="margin:4px 0">${esc(inc?.titre || x.incidents?.titre || '?')}
+      <span class="etiquette st-${inc?.statut || x.incidents?.statut}">${STATUTS_INC[inc?.statut || x.incidents?.statut] || ''}</span></p>
+      ${inc ? `<button class="petit secondaire" onclick="App.ficheIncident('${inc.id}')">Voir l'incident</button>` : ''}</div>`;
+    h += `<div class="bloc"><b>Entreprise</b>${p ? `<p style="margin:4px 0">${esc(p.nom)}${p.contact ? `, ${esc(p.contact)}` : ''}</p>
+      <p class="sous" style="margin:0">${p.telephone ? `<a href="tel:${esc(p.telephone.replace(/\s/g, ''))}">${esc(p.telephone)}</a>` : ''}${p.telephone && p.email ? ' · ' : ''}${p.email ? `<a href="mailto:${esc(p.email)}">${esc(p.email)}</a>` : ''}${p.adresse ? `<br>${esc(p.adresse)}` : ''}</p>` : '<p class="sous" style="margin:4px 0 0">Non désignée</p>'}</div>`;
+    h += `<h2>Montants</h2><div class="bloc" style="overflow-x:auto"><table class="montants"><thead><tr><th></th><th>HT</th><th>TTC</th></tr></thead><tbody>
+      ${MONTANTS.map(([k, l, a]) => `<tr><td>${l}<br><small class="aide">${a}</small></td><td>${euros(x[k + '_ht'])}</td><td>${euros(x[k + '_ttc'])}</td></tr>`).join('')}
+      </tbody></table><p class="aide" style="margin:6px 0 0">Seul le coût réel est une dépense réalisée. Un devis, même accepté, n'est pas compté comme dépense.</p></div>`;
+    if (x.statut === 'termine') h += `<h2>Compte rendu</h2><div class="bloc"><p class="obs" style="margin:0">${esc(x.compte_rendu || '')}</p>
+      <p class="aide" style="margin:8px 0 0">Clôturée le ${x.date_cloture ? fmt(isoLocal(new Date(x.date_cloture))) : '?'}${x.cloture_par ? ` par ${esc(nomProfil(x.cloture_par) || '?')}` : ''}.</p></div>`;
+    if (peutSaisir() && intOuverte(x)) h += `<button class="principal" style="width:100%;margin-top:12px" onclick="App.formClotureInt('${x.id}')">Clôturer l'intervention (compte rendu)</button>`;
+    if (modifiable){
+      h += `<h2>Statut</h2><div class="bloc"><div class="ligne-statut">
+        <label>Nouveau statut<select id="statutInt">${Object.entries(STATUTS_INT).filter(([k]) => k !== 'termine' || x.statut === 'termine')
+          .map(([k, v]) => `<option value="${k}" ${k === x.statut ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <button class="principal" onclick="App.changerStatutInt('${x.id}', this)">Appliquer</button></div></div>`;
+    }
+    const blocDocs = (types, titre) => {
+      let out = `<h2>${titre}</h2>`, rien = true;
+      for (const type of types){
+        const l = docs.filter(d => d.type === type); if (!l.length) continue; rien = false;
+        const imgs = l.filter(d => urls[d.chemin]), autres = l.filter(d => !urls[d.chemin]);
+        out += `<div class="bloc"><b>${DOC_INT[type]}${l.length > 1 ? ` (${l.length})` : ''}</b>
+          ${imgs.length ? `<div class="vignettes">${imgs.map(d => `<button class="vignette" onclick="App.ouvrirDoc('${encodeURIComponent(d.chemin)}','interventions')" aria-label="${esc(d.nom || 'Photo')}"><img src="${esc(urls[d.chemin])}" alt="${esc(d.nom || 'Photo')}" loading="lazy"></button>`).join('')}</div>` : ''}
+          ${autres.map(d => `<button class="doc" onclick="App.ouvrirDoc('${encodeURIComponent(d.chemin)}','interventions')">📎 ${esc(d.nom || 'Document')}</button>`).join('')}</div>`;
+      }
+      return out + (rien ? `<p class="vide">Aucun élément.</p>` : '');
+    };
+    h += blocDocs(['devis', 'bon_commande', 'facture', 'rapport', 'autre'], 'Documents');
+    h += blocDocs(['photo_avant', 'photo_apres'], 'Photos avant et après travaux');
+    if (modifiable) h += `<button class="secondaire" style="width:100%" onclick="App.ajouterDocInt('${x.id}')">Ajouter des documents ou des photos</button>`;
+    h += `<h2>Commentaires</h2>${comms.length ? comms.map(c => { const d = new Date(c.created_at);
+        return `<div class="commentaire"><p>${esc(c.texte)}</p><small>${esc(c.auteur_nom || '?')}, ${d.toLocaleDateString('fr-FR', { day:'numeric', month:'short', year:'numeric' })} à ${heureFr(d)}</small></div>`; }).join('')
+      : '<p class="vide">Aucun commentaire.</p>'}`;
+    if (peutSaisir()) h += `<form data-id="${nouvelId()}" onsubmit="App.commenterInt(event,'${x.id}')" style="margin-top:8px">
+        <label>Ajouter un commentaire<textarea name="texte" rows="3" maxlength="5000" required placeholder="Échange avec l'entreprise, point d'avancement…"></textarea>
+          <span class="aide">Un commentaire publié ne peut plus être modifié ni supprimé.</span></label>
+        <button class="principal" type="submit">Publier</button></form>`;
+    h += `<h2>Historique</h2>${hist.length ? `<ul class="journal">${hist.map(ligneJournalInt).join('')}</ul>` : '<p class="vide">Aucune modification enregistrée.</p>'}`;
+    $('#modalContenu').innerHTML = h;
+  },
+  async changerStatutInt(id, bouton){
+    const x = S.interventions.find(i => i.id === id), nouveau = $('#statutInt').value;
+    if (!x || nouveau === x.statut) return toast('Le statut est déjà « ' + STATUTS_INT[nouveau] + ' ».');
+    if (nouveau === 'annule' && !confirm('Annuler cette intervention ? Seul un administrateur pourra ensuite la rouvrir.')) return;
+    bouton.disabled = true; bouton.textContent = '…';
+    try {
+      await majIntervention(id, { statut:nouveau }); toast('Statut : ' + STATUTS_INT[nouveau]);
+      await chargerInterventions(); if (S.sousVue === 'interventions') majInterventions();
+      if (nouveau === 'en_cours') await App.proposerStatutIncident(x.incident_id, 'en_cours');
+      App.ficheIntervention(id);
+    }
+    catch (err){ toast(traduire(err), true); bouton.disabled = false; bouton.textContent = 'Appliquer'; }
+  },
+  async supprimerIntervention(id){
+    const x = S.interventions.find(i => i.id === id);
+    if (!x || !estAdmin() || x.statut !== 'a_planifier') return toast('Seule une intervention « À planifier » peut être supprimée, par un administrateur.', true);
+    if (!confirm(`Supprimer l'intervention « ${x.objet} » ? La suppression restera tracée. Pour une intervention qui n'aura pas lieu, préférez « Annulé ».`)) return;
+    try {
+      const r = await q(sb.from('interventions').delete().eq('id', id).select('id'));
+      if (!r || !r.length) throw new Error("Suppression refusée : l'intervention a changé de statut ou contient des documents.");
+      fermer(); toast('Intervention supprimée'); await chargerInterventions(); rendre();
+    } catch (err){ toast(traduire(err), true); }
+  },
+
+  /* Ne modifie jamais l'incident sans confirmation explicite de l'utilisateur */
+  async proposerStatutIncident(incId, cible){
+    if (!incId) return;
+    await chargerIncidents();
+    const inc = S.incidents.find(i => i.id === incId);
+    if (!inc || !ouvert(inc) || inc.statut === cible) return;
+    if (cible === 'en_cours' && inc.statut === 'en_cours') return;
+    const autres = S.interventions.filter(i => i.incident_id === incId && intOuverte(i)).length;
+    const msg = cible === 'resolu'
+      ? `L'intervention est terminée.${autres ? ` Attention : ${autres} autre${autres > 1 ? 's' : ''} intervention${autres > 1 ? 's' : ''} liée${autres > 1 ? 's' : ''} ${autres > 1 ? 'sont' : 'est'} encore en cours.` : ''}\n\nPasser l'incident « ${inc.titre} » (${STATUTS_INC[inc.statut]}) en « Résolu » ?`
+      : `L'intervention démarre.\n\nPasser l'incident « ${inc.titre} » (${STATUTS_INC[inc.statut]}) en « En cours » ?`;
+    if (!confirm(msg)) return toast("Statut de l'incident inchangé.");
+    try { await majIncident(incId, { statut:cible }); await chargerIncidents(); toast(`Incident passé en « ${STATUTS_INC[cible]} »`); }
+    catch (err){ toast("Incident non modifié : " + traduire(err), true); }
+  },
+  formClotureInt(id){
+    const x = S.interventions.find(i => i.id === id);
+    if (!x || !peutSaisir() || !intOuverte(x)) return toast('Clôture impossible pour cette intervention.', true);
+    ouvrir(tete("Clôturer l'intervention") + `
+      <p class="sous" style="margin:-6px 0 12px">${esc(x.objet)}${x.incidents?.titre ? `<br>Incident lié : ${esc(x.incidents.titre)}` : ''}</p>
+      <form onsubmit="App.cloturerInt(event,'${id}')">
+        <label>Compte rendu<textarea name="compte_rendu" rows="5" required maxlength="5000" placeholder="Travaux réalisés, pièces remplacées, réserves éventuelles, recommandations…">${esc(x.compte_rendu)}</textarea></label>
+        <div class="deux"><label>Début réel<input type="date" name="date_debut_reelle" value="${esc(x.date_debut_reelle)}" max="${aujourdhui()}"></label>
+          <label>Fin réelle<input type="date" name="date_fin_reelle" required value="${esc(x.date_fin_reelle || aujourdhui())}" max="${aujourdhui()}"></label></div>
+        ${champMontant('cout_reel', 'Coût réel <small class="aide">(dépense réalisée, selon la facture)</small>', x)}
+        <p class="aide" style="margin:0">Pensez à joindre la facture et le rapport depuis la fiche. Après clôture, seul un administrateur pourra rouvrir l'intervention.</p>
+        <div class="boutons"><button class="principal" type="submit">Clôturer l'intervention</button></div>
+        <button type="button" class="lien" onclick="App.ficheIntervention('${id}')">Annuler</button>
+      </form>`);
+  },
+  async cloturerInt(ev, id){
+    ev.preventDefault();
+    const form = ev.target, f = new FormData(form), b = form.querySelector('button[type=submit]');
+    const x = S.interventions.find(i => i.id === id);
+    let d;
+    try {
+      d = { statut:'termine', compte_rendu:(f.get('compte_rendu') || '').trim(),
+            date_fin_reelle:f.get('date_fin_reelle'), date_debut_reelle:vide(f.get('date_debut_reelle')) || f.get('date_fin_reelle'),
+            cout_reel_ht:lireMontant(f.get('cout_reel_ht'), 'Coût réel HT'), cout_reel_ttc:lireMontant(f.get('cout_reel_ttc'), 'Coût réel TTC') };
+      if (!d.compte_rendu) throw new Error('Le compte rendu est obligatoire.');
+      if (!d.date_fin_reelle) throw new Error('La date de fin réelle est obligatoire.');
+      if (d.date_fin_reelle < d.date_debut_reelle) throw new Error('La fin réelle précède le début réel.');
+      if (d.cout_reel_ht != null && d.cout_reel_ttc != null && d.cout_reel_ttc < d.cout_reel_ht) throw new Error('Coût réel : le TTC doit être supérieur ou égal au HT.');
+    } catch (err){ return toast(traduire(err), true); }
+    if (d.cout_reel_ht == null && d.cout_reel_ttc == null
+        && !confirm("Aucun coût réel n'est saisi : cette intervention ne sera comptée dans aucune dépense. Clôturer quand même ?")) return;
+    if (!confirm('Clôturer cette intervention ? Seul un administrateur pourra ensuite la rouvrir.')) return;
+    b.disabled = true; b.textContent = 'Clôture…';
+    try {
+      await majIntervention(id, d);
+      toast('Intervention clôturée');
+      await chargerInterventions(); if (S.vue === 'incidents' && S.sousVue === 'interventions') majInterventions();
+      if (x?.incident_id) await App.proposerStatutIncident(x.incident_id, 'resolu');
+      App.ficheIntervention(id);
+    } catch (err){ toast(traduire(err), true); b.disabled = false; b.textContent = "Clôturer l'intervention"; }
+  },
+  ajouterDocInt(id){
+    const x = S.interventions.find(i => i.id === id); if (!x) return;
+    if (!peutSaisir() || (!intOuverte(x) && !estAdmin())) return toast('Action non autorisée pour votre rôle.', true);
+    const defaut = ['en_cours','en_attente','termine'].includes(x.statut) ? 'photo_apres'
+      : ['devis_demande','devis_recu'].includes(x.statut) ? 'devis' : ['valide','planifie'].includes(x.statut) ? 'bon_commande' : 'photo_avant';
+    ouvrir(tete('Ajouter des documents ou des photos') + `
+      <p class="sous" style="margin:-6px 0 12px">${esc(x.objet)}</p>
+      <form data-id="${nouvelId()}" onsubmit="App.enregistrerDocsInt(event,'${id}')">
+        <label>Type<select name="type">${Object.entries(DOC_INT).map(([k, v]) => `<option value="${k}" ${k === defaut ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label>Fichiers<input type="file" name="fichiers" multiple required accept="image/*,application/pdf">
+          <span class="aide">PDF (devis, bon de commande, facture, rapport) ou photos. Les photos sont réduites automatiquement.</span></label>
+        <ul class="etat-envoi" hidden></ul>
+        <div class="boutons"><button class="principal" type="submit">Envoyer</button></div>
+        <button type="button" class="secondaire" data-abandon hidden onclick="App.abandonnerEnvoi(this, '', '', '${id}')">Abandonner les fichiers restants</button>
+        <button type="button" class="lien" onclick="App.ficheIntervention('${id}')">Retour à l'intervention</button>
+      </form>`);
+  },
+  async enregistrerDocsInt(ev, id){
+    ev.preventDefault();
+    const form = ev.target, cle = form.dataset.id;
+    const b = form.querySelector('button[type=submit]'), zone = form.querySelector('.etat-envoi'), abandon = form.querySelector('[data-abandon]');
+    const e = ENVOIS[cle] ??= { lot:cle.slice(0, 8), entrees:preparer(form.fichiers.files), cible:cibleIntervention(form.type.value) };
+    if (!e.entrees.length) return toast('Choisissez au moins un fichier.', true);
+    form.fichiers.disabled = true; form.type.disabled = true; b.disabled = true; abandon.hidden = true;
+    try { if (!(await verifierIntervention(id))) throw new Error("Cette intervention n'existe plus. Aucun fichier n'a été envoyé."); }
+    catch (err){ toast(traduire(err), true); b.disabled = false; b.textContent = 'Réessayer'; return; }
+    const restants = await envoyerFichiers(id, e.lot, e.entrees, b, zone, e.cible);
+    if (restants){
+      b.disabled = false; b.textContent = `Reprendre l'envoi (${restants} fichier${restants > 1 ? 's' : ''})`;
+      abandon.hidden = false; toast("Certains fichiers n'ont pas été envoyés.", true); return;
+    }
+    delete ENVOIS[cle];
+    toast(e.entrees.length > 1 ? 'Fichiers ajoutés' : 'Fichier ajouté');
+    App.ficheIntervention(id);
+  },
+  /* Commentaire : identifiant fixé à l'ouverture, donc jamais publié deux fois même après une erreur réseau */
+  async commenterInt(ev, id){
+    ev.preventDefault();
+    const form = ev.target, cle = form.dataset.id, b = form.querySelector('button[type=submit]');
+    const texte = (form.texte.value || '').trim();
+    if (!texte) return toast('Le commentaire est vide.', true);
+    b.disabled = true; b.textContent = 'Publication…';
+    try {
+      const { error } = await sb.from('intervention_commentaires').insert({ id:cle, intervention_id:id, texte });
+      if (error){
+        const { data, error:e2 } = await sb.from('intervention_commentaires').select('id').eq('id', cle).maybeSingle();
+        if (e2 || !data) throw error;
+      }
+      toast('Commentaire publié');
+      App.ficheIntervention(id);
+    } catch (err){ toast(traduire(err), true); b.disabled = false; b.textContent = 'Publier'; }
+  },
+
+  /* Annuaire des entreprises : ajout (admin, contributeur), modification (admin) */
+  formPrestataire(id, formOrigine){
+    if (!peutSaisir() || (id && !estAdmin())) return toast('Action non autorisée pour votre rôle.', true);
+    const x = id ? S.prestataires.find(i => i.id === id) : {};
+    App._formOrigine = formOrigine ? { donnees:new FormData(formOrigine), id:formOrigine.dataset.id, edition:/Modifier/.test($('#modalContenu h2')?.textContent || '') } : null;
+    ouvrir(tete(id ? "Modifier l'entreprise" : 'Nouvelle entreprise') + `
+      <form onsubmit="App.enregistrerPrestataire(event, ${id ? `'${id}'` : 'null'})">
+        <label>Nom<input name="nom" required maxlength="120" value="${esc(x.nom)}"></label>
+        <label>Contact<input name="contact" value="${esc(x.contact)}" placeholder="Nom de l'interlocuteur"></label>
+        <div class="deux"><label>Téléphone<input name="telephone" type="tel" value="${esc(x.telephone)}"></label>
+          <label>E-mail<input name="email" type="email" value="${esc(x.email)}"></label></div>
+        <label>Adresse<input name="adresse" value="${esc(x.adresse)}"></label>
+        <label>Notes<textarea name="notes" rows="2">${esc(x.notes)}</textarea></label>
+        ${id ? `<label class="case"><input type="checkbox" name="actif" ${x.actif !== false ? 'checked' : ''}> Entreprise active (proposée dans les listes)</label>` : ''}
+        <div class="boutons"><button class="principal" type="submit">Enregistrer</button></div>
+      </form>`);
+  },
+  async enregistrerPrestataire(ev, id){
+    ev.preventDefault();
+    const f = new FormData(ev.target), b = ev.target.querySelector('button[type=submit]');
+    const d = { nom:(f.get('nom') || '').trim().replace(/\s+/g, ' '), contact:vide(f.get('contact').trim()), telephone:vide(f.get('telephone').trim()),
+      email:vide(f.get('email').trim()), adresse:vide(f.get('adresse').trim()), notes:vide(f.get('notes').trim()) };
+    if (!d.nom) return toast("Le nom de l'entreprise est obligatoire.", true);
+    if (id) d.actif = f.get('actif') === 'on';
+    const existe = S.prestataires.find(x => x.id !== id && norm(x.nom).trim() === norm(d.nom).trim());
+    if (existe && !id){ toast(`« ${existe.nom} » existe déjà : elle a été sélectionnée.`); return App._retourIntervention(existe.id); }
+    b.disabled = true;
+    try {
+      let nouvelle;
+      if (id){ const r = await q(sb.from('prestataires').update(d).eq('id', id).select('id')); if (!r?.length) throw new Error('Modification refusée.'); }
+      else {
+        const { data, error } = await sb.from('prestataires').insert(d).select('id').single();
+        if (error){
+          if (error.code !== '23505') throw error;
+          await chargerInterventions();
+          const doublon = S.prestataires.find(x => norm(x.nom).trim() === norm(d.nom).trim());
+          toast('Cette entreprise existe déjà : elle a été sélectionnée.');
+          return App._retourIntervention(doublon?.id);
+        }
+        nouvelle = data.id;
+      }
+      toast('Entreprise enregistrée'); await chargerInterventions();
+      if (App._formOrigine) return App._retourIntervention(nouvelle);
+      fermer(); rendre();
+    } catch (err){ toast(traduire(err), true); b.disabled = false; }
+  },
+  /* Revient au formulaire d'intervention en cours, saisie conservée, entreprise sélectionnée */
+  _retourIntervention(prestId){
+    const o = App._formOrigine; App._formOrigine = null;
+    if (!o){ fermer(); return rendre(); }
+    App.formIntervention(o.edition ? o.id : null, {});
+    const form = $('#modalContenu form'); if (!form) return;
+    if (!o.edition) form.dataset.id = o.id;
+    for (const [k, v] of o.donnees.entries()) if (form[k] && form[k].type !== 'file') form[k].value = v;
+    if (o.donnees.get('incident_id')) App.majIncidentInt(form.incident_id);
+    form.equipement_id.value = o.donnees.get('equipement_id') || '';
+    if (prestId) form.prestataire_id.value = prestId;
+  },
+
+  /* ================= Module Incidents ================= */
+  filtreInc(cle, v){ S.fi[cle] = v; majIncidents(); },
+  effacerRechercheInc(){ S.fi.texte = ''; const r = $('#rechercheInc'); if (r){ r.value = ''; r.focus(); } majIncidents(); },
+  effacerFiltresInc(){ S.fi = FI_VIDES(); rendre(); },
+  indicateurInc(k){
+    const F = S.fi;
+    const cible = { urgents:['ouverts', 'urgente'], ouverts:['ouverts', ''], attente:['attente_prestataire', ''] }[k];
+    const deja = F.statut === cible[0] && F.priorite === cible[1];
+    F.statut = deja ? '' : cible[0]; F.priorite = deja ? '' : cible[1];
+    majIncidents();
+    if (!deja) $('#resultatsInc')?.scrollIntoView({ behavior:'smooth', block:'start' });
+  },
+  majEquipInc(sel){ sel.form.equipement_id.innerHTML = optionsEquipInc(sel.value, ''); },
+
+  formIncident(id, pre = {}){
+    if (!peutSaisir()) return toast('Votre rôle ne permet pas de signaler un incident.', true);
+    const i = id ? S.incidents.find(x => x.id === id)
+      : { site_id:pre.site_id || S.fi.site || '', equipement_id:pre.equipement_id || '', categorie:'autre', priorite:'normale',
+          date_signalement:aujourdhui(), signale_par:S.profil?.nom || '' };
+    if (!i) return toast('Incident introuvable. Actualisez la liste.', true);
+    const opt = (v, l, sel) => `<option value="${esc(v)}" ${v === sel ? 'selected' : ''}>${esc(l)}</option>`;
+    const sites = S.sites.filter(x => siteActif(x) || x.id === i.site_id);
+    ouvrir(tete(id ? "Modifier l'incident" : 'Signaler un incident') + `
+      <form data-id="${id || nouvelId()}" onsubmit="App.enregistrerIncident(event, ${id ? `'${id}'` : 'null'})">
+        <label>Bâtiment<select name="site_id" required onchange="App.majEquipInc(this)">${opt('', 'Choisir…', i.site_id)}${sites.map(x => opt(x.id, x.nom, i.site_id)).join('')}</select></label>
+        <label>Équipement concerné (facultatif)<select name="equipement_id">${optionsEquipInc(i.site_id, i.equipement_id)}</select></label>
+        <label>Titre<input name="titre" required maxlength="150" value="${esc(i.titre)}" placeholder="Fuite sous l'évier, radiateur froid…"></label>
+        <label>Description détaillée<textarea name="description" rows="4" placeholder="Où, depuis quand, ce qui a été constaté…">${esc(i.description)}</textarea></label>
+        <div class="deux">
+          <label>Catégorie<select name="categorie">${Object.entries(CAT_INC).map(([k, v]) => opt(k, v, i.categorie)).join('')}</select></label>
+          <label>Priorité<select name="priorite">${Object.entries(PRIO).map(([k, v]) => opt(k, v, i.priorite)).join('')}</select></label>
+        </div>
+        <div class="deux">
+          <label>Date de signalement<input type="date" name="date_signalement" required max="${aujourdhui()}" value="${esc(i.date_signalement)}"></label>
+          <label>Signalé par<input name="signale_par" value="${esc(i.signale_par)}" placeholder="Nom, fonction"></label>
+        </div>
+        ${id ? '' : `<label>Photos<input type="file" name="fichiers" multiple accept="image/*">
+          <span class="aide">Facultatif. Elles pourront aussi être ajoutées plus tard.</span></label>
+          <ul class="etat-envoi" hidden></ul>`}
+        <div class="boutons"><button class="principal" type="submit">${id ? 'Enregistrer les modifications' : "Signaler l'incident"}</button></div>
+        ${id ? `<button type="button" class="lien" onclick="App.ficheIncident('${id}')">Annuler</button>`
+             : `<button type="button" class="secondaire" data-abandon hidden onclick="App.abandonnerEnvoi(this, '', this.form.dataset.id)">Terminer sans les photos restantes</button>`}
+      </form>`);
+  },
+  async enregistrerIncident(ev, id){
+    ev.preventDefault();
+    const form = ev.target, f = new FormData(form), b = form.querySelector('button[type=submit]');
+    const d = {
+      site_id: f.get('site_id'), equipement_id: vide(f.get('equipement_id')),
+      titre: (f.get('titre') || '').trim(), description: vide((f.get('description') || '').trim()),
+      categorie: f.get('categorie'), priorite: f.get('priorite'),
+      date_signalement: f.get('date_signalement'), signale_par: vide((f.get('signale_par') || '').trim()),
+    };
+    if (!d.titre && !(id === null && ENVOIS[form.dataset.id]?.cree)) return toast('Le titre est obligatoire.', true);
+    if (id){                                   // modification
+      b.disabled = true; b.textContent = 'Enregistrement…';
+      try { await majIncident(id, d); toast('Incident modifié'); await chargerIncidents(); App.ficheIncident(id); if (S.vue === 'incidents') majIncidents(); }
+      catch (err){ toast(traduire(err), true); b.disabled = false; b.textContent = 'Enregistrer les modifications'; }
+      return;
+    }
+    /* Création en deux étapes, comme pour les contrôles : incident (une seule fois), puis photos (avec reprise) */
+    const cle = form.dataset.id, zone = form.querySelector('.etat-envoi'), abandon = form.querySelector('[data-abandon]');
+    const e = ENVOIS[cle] ??= { cree:false, lot:nouvelId().slice(0, 8), entrees:[], cible:cibleIncident('photo_signalement') };
+    b.disabled = true; abandon.hidden = true;
+    try {
+      if (!e.cree){
+        e.entrees = preparer(form.fichiers.files);
+        b.textContent = 'Enregistrement…';
+        const { error } = await sb.from('incidents').insert({ id:cle, ...d });
+        if (error && !(await verifierIncident(cle))) throw error;    // réponse perdue mais incident créé : on poursuit
+        e.cree = true;
+        form.querySelectorAll('input, textarea, select').forEach(x => x.disabled = true);
+      } else if (!(await verifierIncident(cle))){
+        e.cree = false;
+        form.querySelectorAll('input, textarea, select').forEach(x => x.disabled = false);
+        throw new Error("L'incident n'existe plus dans la base. Vérifiez les informations puis enregistrez-le à nouveau.");
+      }
+      const restants = await envoyerFichiers(cle, e.lot, e.entrees, b, zone, e.cible);
+      if (restants){
+        b.disabled = false; b.textContent = `Reprendre l'envoi (${restants} photo${restants > 1 ? 's' : ''})`;
+        abandon.hidden = false;
+        toast("Incident enregistré, mais certaines photos n'ont pas été envoyées.", true);
+        chargerIncidents();
+        return;
+      }
+      delete ENVOIS[cle];
+      toast('Incident signalé');
+      await chargerIncidents(); if (S.vue === 'incidents') majIncidents();
+      App.ficheIncident(cle);
+    } catch (err){
+      toast(traduire(err), true);
+      b.disabled = false; b.textContent = e.cree ? "Reprendre l'envoi" : "Réessayer l'enregistrement";
+    }
+  },
+
+  async ficheIncident(id){
+    const i = S.incidents.find(x => x.id === id);
+    if (!i){ toast('Incident introuvable. Actualisez la liste.', true); return; }
+    ouvrir(tete(esc(i.titre)) + '<p class="chargement">Chargement…</p>');
+    let docs, hist, urls = {};
+    try {
+      [docs, hist] = await Promise.all([
+        q(sb.from('incident_documents').select('*').eq('incident_id', id).order('created_at')),
+        q(sb.from('incident_historique').select('*').eq('incident_id', id).order('created_at', { ascending:false }).order('id', { ascending:false })),
+      ]);
+      const images = docs.filter(x => (x.mime || '').startsWith('image/'));
+      if (images.length){
+        const { data } = await sb.storage.from('incidents').createSignedUrls(images.map(x => x.chemin), 3600);
+        (data || []).forEach(u => { if (u.signedUrl) urls[u.path] = u.signedUrl; });
+      }
+    } catch { return fermer(); }
+    const modifiable = peutSaisir() && (i.statut !== 'cloture' || estAdmin());
+    const infos = [['Catégorie', CAT_INC[i.categorie]], ['Signalé le', fmt(i.date_signalement)], ['Signalé par', i.signale_par],
+      ['Résolu le', i.date_resolution && fmt(i.date_resolution)], ['Clôturé le', i.date_cloture && fmt(i.date_cloture)]].filter(x => x[1]);
+    let h = `<div class="feuille-tete"><div><h2>${esc(i.titre)}</h2>
+      <p class="sous">${esc(i.sites?.nom || '?')}${i.equipements?.nom ? `, ${esc(i.equipements.nom)}` : ''}</p>
+      <div class="inc-tete" style="margin-top:6px"><span class="etiquette p-${i.priorite}">${i.priorite === 'urgente' ? 'URGENT' : 'Priorité ' + PRIO[i.priorite].toLowerCase()}</span>
+      <span class="etiquette st-${i.statut}">${STATUTS_INC[i.statut]}</span></div></div>
+      <button class="fermer" onclick="App.fermer()" aria-label="Fermer">✕</button></div>`;
+    h += `<div class="bloc"><dl class="infos">${infos.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+      ${i.description ? `<p class="obs" style="margin:10px 0 0">${esc(i.description)}</p>` : ''}
+      ${modifiable ? `<div class="actions"><button class="petit secondaire" onclick="App.formIncident('${i.id}')">Modifier</button>
+        ${estAdmin() && i.statut === 'nouveau' ? `<button class="petit danger" onclick="App.supprimerIncident('${i.id}')">Supprimer</button>` : ''}</div>` : ''}</div>`;
+    if (modifiable){
+      h += `<h2>Statut</h2><div class="bloc"><div class="ligne-statut">
+        <label>Nouveau statut<select id="statutInc">${Object.entries(STATUTS_INC).filter(([k]) => k !== 'cloture' || estAdmin())
+          .map(([k, v]) => `<option value="${k}" ${k === i.statut ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <button class="principal" onclick="App.changerStatutInc('${i.id}', this)">Appliquer</button></div>
+        ${estAdmin() ? '' : `<p class="aide" style="margin:6px 0 0">La clôture est réservée aux administrateurs.</p>`}</div>`;
+    }
+    const liees = S.intErreur === 'absent' ? [] : S.interventions.filter(t => t.incident_id === i.id);
+    if (S.intErreur !== 'absent'){
+      h += `<h2>Interventions liées</h2>`;
+      h += liees.length ? `<div class="liste">${liees.map(carteIntervention).join('')}</div>` : '<p class="vide">Aucune intervention pour cet incident.</p>';
+      if (peutSaisir() && ouvert(i)) h += `<button class="secondaire" style="width:100%;margin-top:8px" onclick="App.formIntervention(null, { incident_id:'${i.id}' })">Créer une intervention pour cet incident</button>`;
+    }
+    if (liees.length){
+      const t = totauxInt(liees);
+      h += `<h2>Suivi et montants</h2><div class="bloc"><dl class="infos">
+        <dt>Responsable</dt><dd>${esc(i.responsable || '—')}</dd><dt>Entreprise</dt><dd>${esc(i.entreprise || '—')}</dd>
+        <dt>Prévisionnel</dt><dd>${euros(t.prevTTC)} TTC <small class="aide">(non engagé)</small></dd>
+        <dt>Réalisé</dt><dd>${euros(t.reelTTC)} TTC, ${euros(t.reelHT)} HT</dd></dl>
+        <p class="aide" style="margin:6px 0 0">Montants issus des interventions liées : ils se saisissent dans chaque intervention.</p>
+        ${i.devis_montant != null || i.facture_montant != null ? `<p class="aide" style="margin:6px 0 0">Saisie antérieure sur l'incident (non comptée dans les dépenses pour éviter un double compte) : devis ${euros(i.devis_montant)}, facture ${euros(i.facture_montant)}.</p>` : ''}
+        ${modifiable ? `<div class="actions"><button class="petit secondaire" onclick="App.formSuiviInc('${i.id}')">Responsable et entreprise</button></div>` : ''}</div>`;
+    } else {
+      h += `<h2>Suivi et intervention</h2><div class="bloc"><dl class="infos">
+        <dt>Responsable</dt><dd>${esc(i.responsable || '—')}</dd><dt>Entreprise</dt><dd>${esc(i.entreprise || '—')}</dd>
+        <dt>Devis</dt><dd>${euros(i.devis_montant)}${i.devis_reference ? `, réf. ${esc(i.devis_reference)}` : ''}</dd>
+        <dt>Facture</dt><dd>${euros(i.facture_montant)}${i.facture_reference ? `, réf. ${esc(i.facture_reference)}` : ''}</dd></dl>
+        ${modifiable ? `<div class="actions"><button class="petit secondaire" onclick="App.formSuiviInc('${i.id}')">Renseigner le suivi</button></div>` : ''}</div>`;
+    }
+    h += `<h2>Photos et documents</h2>`;
+    if (!docs.length) h += `<p class="vide">Aucune photo ni document.</p>`;
+    for (const [type, lib] of Object.entries(DOC_INC)){
+      const l = docs.filter(x => x.type === type); if (!l.length) continue;
+      const imgs = l.filter(x => urls[x.chemin]), autres = l.filter(x => !urls[x.chemin]);
+      h += `<div class="bloc"><b>${lib}</b>
+        ${imgs.length ? `<div class="vignettes">${imgs.map(x => `<button class="vignette" onclick="App.ouvrirDoc('${encodeURIComponent(x.chemin)}','incidents')" aria-label="${esc(x.nom || 'Photo')}"><img src="${esc(urls[x.chemin])}" alt="${esc(x.nom || 'Photo')}" loading="lazy"></button>`).join('')}</div>` : ''}
+        ${autres.map(x => `<button class="doc" onclick="App.ouvrirDoc('${encodeURIComponent(x.chemin)}','incidents')">📎 ${esc(x.nom || 'Document')}</button>`).join('')}</div>`;
+    }
+    if (modifiable) h += `<button class="secondaire" style="width:100%" onclick="App.ajouterDocInc('${i.id}')">Ajouter des photos ou documents</button>`;
+    h += `<h2>Historique</h2>${hist.length ? `<ul class="journal">${hist.map(ligneJournal).join('')}</ul>` : '<p class="vide">Aucune modification enregistrée.</p>'}`;
+    $('#modalContenu').innerHTML = h;
+  },
+
+  async changerStatutInc(id, bouton){
+    const i = S.incidents.find(x => x.id === id), nouveau = $('#statutInc').value;
+    if (!i || nouveau === i.statut) return toast('Le statut est déjà « ' + STATUTS_INC[nouveau] + ' ».');
+    if (nouveau === 'cloture' && !confirm("Clôturer cet incident ? Seul un administrateur pourra ensuite le modifier.")) return;
+    bouton.disabled = true; bouton.textContent = '…';
+    try { await majIncident(id, { statut:nouveau }); toast('Statut : ' + STATUTS_INC[nouveau]); await chargerIncidents(); if (S.vue === 'incidents') majIncidents(); App.ficheIncident(id); }
+    catch (err){ toast(traduire(err), true); bouton.disabled = false; bouton.textContent = 'Appliquer'; }
+  },
+
+  formSuiviInc(id){
+    const i = S.incidents.find(x => x.id === id); if (!i) return;
+    const avecInt = S.interventions.some(t => t.incident_id === id);
+    const m = v => v === null || v === undefined ? '' : String(v).replace('.', ',');
+    ouvrir(tete('Suivi et intervention') + `
+      <p class="sous" style="margin:-6px 0 12px">${esc(i.titre)}</p>
+      <form onsubmit="App.enregistrerSuiviInc(event,'${id}')">
+        <div class="deux"><label>Responsable<input name="responsable" value="${esc(i.responsable)}" placeholder="Élu, agent…"></label>
+          <label>Entreprise<input name="entreprise" value="${esc(i.entreprise)}"></label></div>
+        ${avecInt ? `<p class="aide" style="margin:0">Cet incident a des interventions : devis, factures et coûts se saisissent dans chaque intervention.</p>` : `
+        <div class="deux"><label>Montant du devis (€)<input name="devis_montant" inputmode="decimal" value="${esc(m(i.devis_montant))}" placeholder="0,00"></label>
+          <label>Référence du devis<input name="devis_reference" value="${esc(i.devis_reference)}"></label></div>
+        <div class="deux"><label>Montant de la facture (€)<input name="facture_montant" inputmode="decimal" value="${esc(m(i.facture_montant))}" placeholder="0,00"></label>
+          <label>Référence de la facture<input name="facture_reference" value="${esc(i.facture_reference)}"></label></div>
+        <p class="aide" style="margin:0">Joignez les PDF du devis et de la facture avec « Ajouter des photos ou documents ».</p>`}
+        <div class="boutons"><button class="principal" type="submit">Enregistrer le suivi</button></div>
+        <button type="button" class="lien" onclick="App.ficheIncident('${id}')">Annuler</button>
+      </form>`);
+  },
+  async enregistrerSuiviInc(ev, id){
+    ev.preventDefault();
+    const f = new FormData(ev.target), b = ev.target.querySelector('button[type=submit]');
+    const montant = k => {
+      const t = (f.get(k) || '').trim().replace(/\s/g, '').replace(',', '.');
+      if (!t) return null;
+      if (!/^\d+(\.\d{1,2})?$/.test(t)) throw new Error('Montant invalide : utilisez un nombre positif, par exemple 1250,50.');
+      return Number(t);
+    };
+    try {
+      const d = { responsable:vide(f.get('responsable').trim()), entreprise:vide(f.get('entreprise').trim()) };
+      if (f.has('devis_montant')) Object.assign(d, {
+        devis_montant:montant('devis_montant'), devis_reference:vide(f.get('devis_reference').trim()),
+        facture_montant:montant('facture_montant'), facture_reference:vide(f.get('facture_reference').trim()) });
+      b.disabled = true; b.textContent = 'Enregistrement…';
+      await majIncident(id, d);
+      toast('Suivi enregistré'); await chargerIncidents(); if (S.vue === 'incidents') majIncidents(); App.ficheIncident(id);
+    } catch (err){ toast(traduire(err), true); b.disabled = false; b.textContent = 'Enregistrer le suivi'; }
+  },
+
+  ajouterDocInc(id){
+    const i = S.incidents.find(x => x.id === id); if (!i) return;
+    const defaut = ['en_cours','attente_prestataire','resolu','cloture'].includes(i.statut) ? 'photo_intervention' : 'photo_signalement';
+    ouvrir(tete('Ajouter des photos ou documents') + `
+      <form data-id="${nouvelId()}" onsubmit="App.enregistrerDocsInc(event,'${id}')">
+        <label>Type<select name="type">${Object.entries(DOC_INC).map(([k, v]) => `<option value="${k}" ${k === defaut ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+        <label>Fichiers<input type="file" name="fichiers" multiple required accept="image/*,application/pdf"></label>
+        <ul class="etat-envoi" hidden></ul>
+        <div class="boutons"><button class="principal" type="submit">Envoyer</button></div>
+        <button type="button" class="secondaire" data-abandon hidden onclick="App.abandonnerEnvoi(this, '', '${id}')">Abandonner les fichiers restants</button>
+        <button type="button" class="lien" onclick="App.ficheIncident('${id}')">Retour à l'incident</button>
+      </form>`);
+  },
+  async enregistrerDocsInc(ev, id){
+    ev.preventDefault();
+    const form = ev.target, cle = form.dataset.id;
+    const b = form.querySelector('button[type=submit]'), zone = form.querySelector('.etat-envoi'), abandon = form.querySelector('[data-abandon]');
+    const e = ENVOIS[cle] ??= { lot:cle.slice(0, 8), entrees:preparer(form.fichiers.files), cible:cibleIncident(form.type.value) };
+    form.fichiers.disabled = true; form.type.disabled = true; b.disabled = true; abandon.hidden = true;
+    try { if (!(await verifierIncident(id))) throw new Error("Cet incident n'existe plus. Aucun fichier n'a été envoyé."); }
+    catch (err){ toast(traduire(err), true); b.disabled = false; b.textContent = 'Réessayer'; return; }
+    const restants = await envoyerFichiers(id, e.lot, e.entrees, b, zone, e.cible);
+    if (restants){
+      b.disabled = false; b.textContent = `Reprendre l'envoi (${restants} fichier${restants > 1 ? 's' : ''})`;
+      abandon.hidden = false; toast("Certains fichiers n'ont pas été envoyés.", true); return;
+    }
+    delete ENVOIS[cle];
+    toast(e.entrees.length > 1 ? 'Fichiers ajoutés' : 'Fichier ajouté');
+    App.ficheIncident(id);
+  },
+
+  async supprimerIncident(id){
+    const i = S.incidents.find(x => x.id === id);
+    if (!i || !estAdmin() || i.statut !== 'nouveau') return toast('Seul un incident « Nouveau » peut être supprimé, par un administrateur.', true);
+    if (!confirm(`Supprimer définitivement l'incident « ${i.titre} » et ses photos ? La suppression restera tracée dans le journal.`)) return;
+    try {
+      const docs = await q(sb.from('incident_documents').select('chemin').eq('incident_id', id));
+      const r = await q(sb.from('incidents').delete().eq('id', id).select('id'));
+      if (!r || !r.length) throw new Error("Suppression refusée : l'incident a peut-être changé de statut entre-temps.");
+      if (docs.length) await sb.storage.from('incidents').remove(docs.map(x => x.chemin)).catch(() => {});
+      fermer(); toast('Incident supprimé'); await chargerIncidents(); rendre();
+    } catch (err){ toast(traduire(err), true); }
+  },
+
+  /* Récapitulatif texte : retards, 30 jours, sans date, réserves ouvertes (toute la commune) */
+  async recap(){
+    ouvrir(tete('Récapitulatif') + '<p class="chargement">Préparation…</p>');
+    let reserves = [];
+    try {
+      reserves = await q(sb.from('controles')
+        .select('date_realisation, resultat, observations, plans(libelle, equipements(nom, sites(nom)))')
+        .neq('resultat', 'conforme').eq('reserve_levee', false).order('date_realisation', { ascending:true }));
+    } catch { return fermer(); }
+    const parDate = (a, b) => (a.prochaine || '').localeCompare(b.prochaine || '');
+    const retard = S.echeances.filter(e => dansPeriode(e, 'retard')).sort(parDate);
+    const trente = S.echeances.filter(e => dansPeriode(e, '0-30')).sort(parDate);
+    const sansDate = S.echeances.filter(e => !e.prochaine);
+    const lignes = [];
+    const ligne = e => {
+      const j = ecart(e.prochaine);
+      const quandTxt = j < 0 ? `prévu le ${fmt(e.prochaine)}, en retard de ${-j} jour${-j > 1 ? 's' : ''}`
+                     : j === 0 ? "prévu aujourd'hui" : `prévu le ${fmt(e.prochaine)} (dans ${j} jour${j > 1 ? 's' : ''})`;
+      return `- ${e.libelle} : ${e.equipement}, ${e.site}, ${quandTxt}${e.prestataire ? `. Prestataire : ${e.prestataire}${e.contact ? ` (${e.contact})` : ''}` : '. Sans prestataire'}`;
+    };
+    const section = (titre, items, f) => { lignes.push('', `${titre} (${items.length})`); lignes.push(...(items.length ? items.map(f) : ['- Aucun'])); };
+    lignes.push('Contrôles périodiques, Commune de Pasly', `Récapitulatif du ${fmt(aujourdhui())}`);
+    section('EN RETARD', retard, ligne);
+    section('À RÉALISER DANS LES 30 JOURS', trente, ligne);
+    section('SANS DATE, À PLANIFIER', sansDate, e => `- ${e.libelle} : ${e.equipement}, ${e.site}`);
+    section('RÉSERVES NON LEVÉES', reserves, c =>
+      `- ${c.plans?.libelle || '?'} : ${c.plans?.equipements?.nom || '?'}, ${c.plans?.equipements?.sites?.nom || '?'}, contrôle du ${fmt(c.date_realisation)} (${RESULTATS[c.resultat]})${c.observations ? `. ${c.observations.replace(/\s+/g, ' ')}` : ''}`);
+    lignes.push('', `Application : ${location.origin}${location.pathname}`);
+    if (S.erreurMaj) lignes.push(`(Données du ${quand(S.majOk || new Date())} : la dernière actualisation a échoué.)`);
+    S.recapTexte = lignes.join('\n');
+    S.recapSujet = `Contrôles périodiques : ${retard.length} en retard, ${trente.length} dans les 30 jours`;
+    $('#modalContenu').innerHTML = tete('Récapitulatif') + `
+      <p class="sous" style="margin:-6px 0 10px">${esc(S.recapSujet)}, ${sansDate.length} sans date, ${reserves.length} réserve${reserves.length > 1 ? 's' : ''} ouverte${reserves.length > 1 ? 's' : ''}.</p>
+      <textarea id="recapTexte" rows="12" readonly style="font-size:.85rem">${esc(S.recapTexte)}</textarea>
+      <div class="boutons" style="margin-top:10px">
+        ${navigator.share ? `<button class="principal" onclick="App.recapPartager()">Partager</button>` : ''}
+        <button class="${navigator.share ? 'secondaire' : 'principal'}" onclick="App.recapCopier()">Copier</button>
+        <button class="secondaire" onclick="App.recapEmail()">E-mail</button>
+      </div>`;
+  },
+  async recapPartager(){
+    try { await navigator.share({ title:S.recapSujet, text:S.recapTexte }); }
+    catch (e){ if (e?.name !== 'AbortError') App.recapCopier(); }
+  },
+  async recapCopier(){
+    try { await navigator.clipboard.writeText(S.recapTexte); }
+    catch { const t = $('#recapTexte'); t.select(); document.execCommand('copy'); }
+    toast('Récapitulatif copié');
+  },
+  recapEmail(){
+    location.href = `mailto:?subject=${encodeURIComponent(S.recapSujet)}&body=${encodeURIComponent(S.recapTexte)}`;
+  },
+  armerPanne(k){
+    if (k === 'upload') PANNES.upload = 1;
+    if (k === 'document') PANNES.document = 1;
+    if (k === 'fichier') PANNES.fichier = 1;
+    if (k === 'aucune') Object.assign(PANNES, { upload:0, document:0, fichier:-1 });
+    toast(k === 'aucune' ? 'Pannes désarmées' : 'Panne armée pour le prochain envoi');
+  },
+
+  /* Vérification croisée table « documents » / stockage « rapports » (lecture seule) */
+  /* Vérification croisée tables de documents / espaces de stockage privés (lecture seule) */
+  async auditDocs(){
+    ouvrir(tete('Vérification des pièces jointes') + '<p class="chargement">Analyse en cours…</p>');
+    const SOURCES = [
+      { cle:'rapports', titre:'Rapports des contrôles', bucket:'rapports', table:'documents',
+        select:'id, controle_id, chemin, nom, controles(date_realisation, plans(libelle, equipements(nom)))', parent:'controle_id',
+        ctx:d => `${d.controles?.plans?.equipements?.nom || '?'}, ${d.controles?.plans?.libelle || '?'}, ${d.controles?.date_realisation ? fmt(d.controles.date_realisation) : '?'}` },
+      { cle:'incidents', titre:'Incidents', bucket:'incidents', table:'incident_documents', select:'id, incident_id, chemin, nom', parent:'incident_id',
+        ctx:d => S.incidents.find(i => i.id === d.incident_id)?.titre || 'incident' },
+      { cle:'interventions', titre:'Interventions', bucket:'interventions', table:'intervention_documents', select:'id, intervention_id, chemin, nom', parent:'intervention_id',
+        ctx:d => S.interventions.find(i => i.id === d.intervention_id)?.objet || 'intervention' },
+    ];
+    const res = [];
+    for (const src of SOURCES){
+      try {
+        const docs = [];
+        for (let de = 0; ; de += 1000){
+          const { data, error } = await sb.from(src.table).select(src.select).order('created_at').range(de, de + 999);
+          if (error) throw error;
+          docs.push(...data); if (data.length < 1000) break;
+        }
+        const liste = async prefixe => {
+          const out = [];
+          for (let de = 0; ; de += 1000){
+            const { data, error } = await sb.storage.from(src.bucket).list(prefixe, { limit:1000, offset:de });
+            if (error) throw error;
+            out.push(...data); if (data.length < 1000) break;
+          }
+          return out;
+        };
+        const objets = new Map();
+        for (const d of await liste('')){
+          if (d.id) { objets.set(d.name, d); continue; }
+          for (const f of await liste(d.name)) if (f.id && f.name !== '.emptyFolderPlaceholder') objets.set(`${d.name}/${f.name}`, f);
+        }
+        const parChemin = {}; docs.forEach(d => (parChemin[d.chemin] ??= []).push(d));
+        const memeNom = {}; docs.forEach(d => (memeNom[`${d[src.parent]}|${d.nom}`] ??= []).push(d));
+        const heure = Date.now() - 3600e3;
+        res.push({ src, nbDocs:docs.length, nbObjets:objets.size,
+          doublons:Object.values(parChemin).filter(l => l.length > 1),
+          possibles:Object.values(memeNom).filter(l => l.length > 1 && new Set(l.map(x => x.chemin)).size > 1),
+          introuvables:docs.filter(d => !objets.has(d.chemin)),
+          isoles:[...objets.entries()].filter(([c]) => !parChemin[c]).map(([c, o]) => ({ chemin:c, recent:o.created_at && new Date(o.created_at).getTime() > heure })) });
+      } catch (err){
+        res.push({ src, erreur: tableAbsente(err) ? 'module non installé' : traduire(err) });
+      }
+    }
+    S.audit = res;
+    const ligne = (titre, n, okTxt, corps) => `<div class="bloc"><div class="histo-tete"><b>${titre}</b><span class="res" style="color:var(${n ? '--retard' : '--ok'})">${n ? n : '✓ ' + okTxt}</span></div>${n ? corps : ''}</div>`;
+    let h = '';
+    res.forEach((r, k) => {
+      h += `<h2>${r.src.titre}</h2>`;
+      if (r.erreur){ h += `<p class="vide">Vérification impossible : ${esc(r.erreur)}</p>`; return; }
+      const ctx = d => esc(r.src.ctx(d));
+      h += `<p class="sous" style="margin:-4px 0 8px">${r.nbDocs} document(s) enregistrés, ${r.nbObjets} fichier(s) stockés.</p>`;
+      h += ligne('Documents en double (même fichier)', r.doublons.length, 'aucun', `<ul>${r.doublons.map(l => `<li>${esc(l[0].nom)} : ${l.length} fois (${ctx(l[0])})</li>`).join('')}</ul>`);
+      h += ligne('Même nom sur un même élément', r.possibles.length, 'aucun',
+        `<p class="aide">Peut être volontaire (deux photos nommées pareil) : à vérifier.</p><ul>${r.possibles.map(l => `<li>${esc(l[0].nom)} : ${l.length} fois (${ctx(l[0])})</li>`).join('')}</ul>`);
+      h += ligne('Documents dont le fichier est introuvable', r.introuvables.length, 'aucun',
+        `<ul>${r.introuvables.map(d => `<li>${esc(d.nom)} (${ctx(d)})</li>`).join('')}</ul>
+         ${estAdmin() ? `<button class="petit danger" onclick="App.nettoyerAudit(${k},'introuvables')">Retirer ces références</button>` : ''}`);
+      h += ligne('Fichiers stockés non rattachés', r.isoles.length, 'aucun',
+        `<p class="aide">Fichiers invisibles dans l'application (envoi interrompu). Ceux de moins d'une heure peuvent être un envoi en cours.</p>
+         <ul>${r.isoles.map(o => `<li>${esc(o.chemin.split('/').pop())}${o.recent ? ' (récent)' : ''}</li>`).join('')}</ul>
+         ${estAdmin() ? `<button class="petit danger" onclick="App.nettoyerAudit(${k},'isoles')">Supprimer ceux de plus d'une heure</button>` : ''}`);
+    });
+    $('#modalContenu').innerHTML = tete('Vérification des pièces jointes') + h;
+  },
+  async nettoyerAudit(k, type){
+    const r = S.audit?.[k]; if (!r || r.erreur) return;
+    try {
+      if (type === 'introuvables'){
+        if (!confirm(`Retirer ${r.introuvables.length} référence(s) vers des fichiers introuvables ?`)) return;
+        await q(sb.from(r.src.table).delete().in('id', r.introuvables.map(d => d.id)));
+      } else {
+        const cibles = r.isoles.filter(o => !o.recent).map(o => o.chemin);
+        if (!cibles.length) return toast('Aucun fichier de plus d’une heure à supprimer.');
+        if (!confirm(`Supprimer définitivement ${cibles.length} fichier(s) non rattaché(s) ?`)) return;
+        await q(sb.storage.from(r.src.bucket).remove(cibles));
+      }
+      toast('Nettoyage effectué');
+      App.auditDocs();
+    } catch {}
+  },
+  async role(id, role){
+    try { await q(sb.from('profils').update({ role }).eq('id', id)); toast('Rôle modifié'); } catch { rendre(); }
+  },
+
+  /* Exports */
+  exportICS(){
+    const ics = s => String(s ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+    const L = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Commune de Pasly//Controles periodiques//FR','CALSCALE:GREGORIAN','METHOD:PUBLISH','X-WR-CALNAME:Contrôles Pasly'];
+    let n = 0;
+    for (const e of S.echeances){
+      if (!e.prochaine || ecart(e.prochaine) < 0) continue;
+      const debut = e.prochaine.replace(/-/g, '');
+      const lendemain = dateObj(e.prochaine); lendemain.setDate(lendemain.getDate() + 1);
+      L.push('BEGIN:VEVENT', `UID:${e.plan_id}-${debut}@controles-pasly`, `DTSTAMP:${stamp}`,
+        `DTSTART;VALUE=DATE:${debut}`, `DTEND;VALUE=DATE:${isoLocal(lendemain).replace(/-/g, '')}`,
+        `SUMMARY:${ics('Contrôle : ' + e.libelle + ' (' + e.equipement + ')')}`,
+        `LOCATION:${ics(e.site)}`,
+        `DESCRIPTION:${ics(perio(e.periodicite_valeur, e.periodicite_unite) + (e.prestataire ? '\nPrestataire : ' + e.prestataire : '') + (e.contact ? '\nContact : ' + e.contact : ''))}`,
+        'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${ics('Contrôle à prévoir : ' + e.libelle)}`, `TRIGGER:-P${e.rappel_jours ?? 30}D`, 'END:VALARM',
+        'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${ics("Contrôle prévu aujourd'hui : " + e.libelle)}`, 'TRIGGER:PT9H', 'END:VALARM',
+        'END:VEVENT');
+      n++;
+    }
+    L.push('END:VCALENDAR');
+    if (!n) return toast("Aucune échéance à venir à exporter.", true);
+    telecharger('controles-pasly.ics', L.join('\r\n'), 'text/calendar;charset=utf-8');
+  },
+  exportCSV(selection = false){
+    const c = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lignes = [['Site','Équipement','Contrôle','Périodicité','Dernier contrôle','Dernier résultat','Prochaine échéance','Statut','Prestataire','Contact','Réserves non levées']];
+    for (const e of (selection ? selectionAffichee() : S.echeances)) lignes.push([e.site, e.equipement, e.libelle, perio(e.periodicite_valeur, e.periodicite_unite),
+      e.dernier_controle ? fmt(e.dernier_controle) : '', RESULTATS[e.dernier_resultat] || '', e.prochaine ? fmt(e.prochaine) : 'à planifier',
+      TITRES[statut(e)], e.prestataire, e.contact, e.reserves_ouvertes]);
+    telecharger(`${selection ? 'selection' : 'echeances'}-controles-pasly-${aujourdhui()}.csv`, '\ufeff' + lignes.map(l => l.map(c).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+  },
+};
+window.App = App;
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#modal').hidden) App.fermer(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && S.profil && $('#modal').hidden) recharger(); });
+demarrer();
+</script>
+</body>
+</html>
