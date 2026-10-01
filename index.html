@@ -1,0 +1,1303 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1B2B48">
+<title>Contrôles périodiques – Pasly</title>
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<meta name="apple-mobile-web-app-title" content="Contrôles">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --encre:#1B2B48; --texte:#25314A; --doux:#5B6780; --papier:#EDF1F6; --carte:#FFFFFF; --ligne:#D2D9E3;
+  --accent:#24539E; --accent-texte:#FFFFFF;
+  --retard:#B3261E; --retard-fond:#FBE8E6;
+  --bientot:#A86200; --bientot-fond:#FFF2D9;
+  --ok:#2B6E46; --ok-fond:#E3F2E8;
+  --planifier:#5B4BA8; --planifier-fond:#ECE9F8;
+  --aucun:#8A94A6;
+  --texte-police:'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --titre-police:'Barlow Condensed', 'Arial Narrow', 'Roboto Condensed', system-ui, sans-serif;
+  --rayon:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --encre:#0F1A2E; --texte:#E3E8F1; --doux:#9EA9BD; --papier:#141C2B; --carte:#1D2738; --ligne:#2F3B50;
+    --accent:#6F9BE6; --accent-texte:#0F1A2E;
+    --retard:#E06A5F; --retard-fond:#3A1F1E;
+    --bientot:#E3A43A; --bientot-fond:#3A2D14;
+    --ok:#5DBA84; --ok-fond:#183224;
+    --planifier:#A99BEB; --planifier-fond:#272340;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:var(--texte-police);font-size:16px;line-height:1.45;color:var(--texte);background:var(--papier);-webkit-text-size-adjust:100%}
+body.bloque{overflow:hidden}
+h1,h2,h3{font-family:var(--titre-police);line-height:1.1;margin:0;color:var(--texte)}
+h1{font-size:1.9rem;font-weight:700}
+h2{font-size:1.4rem;font-weight:600;margin:1.6rem 0 .6rem}
+h3{font-size:1.2rem;font-weight:600}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+/* Barre du haut */
+.barre{position:sticky;top:0;z-index:5;background:var(--encre);color:#fff;padding:calc(env(safe-area-inset-top,0px) + 10px) 16px 10px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.barre .titre{font-family:var(--titre-police);font-size:1.35rem;font-weight:700;line-height:1}
+.barre .titre small{display:block;font-family:var(--texte-police);font-size:.78rem;font-weight:400;opacity:.75;margin-top:3px}
+.icone-btn{background:none;border:0;color:inherit;padding:8px;border-radius:8px;cursor:pointer;display:flex}
+svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+main{max-width:760px;margin:0 auto;padding:16px 16px calc(96px + env(safe-area-inset-bottom,0px))}
+
+/* Navigation du bas */
+.onglets{position:fixed;left:0;right:0;bottom:0;z-index:5;display:grid;grid-template-columns:repeat(4,1fr);background:var(--carte);border-top:1px solid var(--ligne);padding-bottom:env(safe-area-inset-bottom,0px)}
+.onglets button{background:none;border:0;padding:8px 2px 9px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:.75rem;color:var(--doux);cursor:pointer;position:relative}
+.onglets button.actif{color:var(--accent);font-weight:700}
+.onglets .nb{position:absolute;top:4px;left:calc(50% + 6px);background:var(--retard);color:#fff;border-radius:9px;font-size:.68rem;padding:0 5px;min-width:18px;line-height:18px}
+body.deconnecte .onglets, body.deconnecte #btnActualiser{display:none}
+
+/* Boutons */
+.principal,.secondaire,.danger,.petit{border-radius:8px;border:1px solid transparent;padding:11px 16px;cursor:pointer;font-weight:700}
+.principal{background:var(--accent);color:var(--accent-texte)}
+.secondaire{background:transparent;border-color:var(--ligne);color:var(--texte)}
+.danger{background:transparent;border-color:var(--retard);color:var(--retard)}
+.petit{padding:7px 12px;font-size:.9rem}
+.petit:not(.secondaire):not(.principal):not(.danger){background:var(--accent);color:var(--accent-texte)}
+.lien{background:none;border:0;color:var(--accent);padding:6px 0;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.lien.danger{color:var(--retard);border:0}
+button:disabled{opacity:.55;cursor:wait}
+
+/* Compteurs */
+.compteurs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.compteurs .s-reserves{grid-column:1 / -1}
+@media (min-width:640px){.compteurs{grid-template-columns:repeat(5,minmax(0,1fr))}.compteurs .s-reserves{grid-column:auto}}
+.s-reserves{--c:var(--bientot);--fond:var(--bientot-fond)}
+.s-periode{--c:var(--accent);--fond:color-mix(in srgb,var(--accent) 10%,var(--carte))}
+.compteur{border:2px solid transparent;border-radius:var(--rayon);padding:10px 10px;min-height:72px;text-align:left;cursor:pointer;background:var(--fond);color:var(--c)}
+.compteur b{display:block;font-family:var(--titre-police);font-size:2.2rem;line-height:1}
+.compteur span{font-size:.82rem;font-weight:700;line-height:1.2;display:block}
+.compteur.actif{border-color:var(--c);box-shadow:inset 0 0 0 1px var(--c)}
+.compteur.actif span::after{content:' ✓'}
+.s-retard{--c:var(--retard);--fond:var(--retard-fond)}
+.s-bientot{--c:var(--bientot);--fond:var(--bientot-fond)}
+.s-ok{--c:var(--ok);--fond:var(--ok-fond)}
+.s-planifier{--c:var(--planifier);--fond:var(--planifier-fond)}
+.s-aucun{--c:var(--aucun);--fond:var(--papier)}
+
+.filtre{width:100%;padding:10px 12px;border:1px solid var(--ligne);border-radius:8px;background:var(--carte)}
+.maj{margin:0 0 10px;font-size:.85rem;color:var(--doux)}
+.maj.erreur{color:var(--retard);font-weight:700}
+.maj .lien{font-size:.85rem;padding:0 0 0 4px}
+.recherche{position:relative}
+.recherche input{width:100%;padding-right:96px !important}
+.recherche .effacer{position:absolute;right:4px;top:50%;transform:translateY(-50%);min-height:38px;padding:6px 10px;border:0;border-radius:6px;background:var(--papier);cursor:pointer;font-size:.85rem;font-weight:700}
+.etiquette{display:inline-block;align-self:flex-start;font-size:.75rem;font-weight:700;color:var(--c);border:1px solid var(--c);border-radius:4px;padding:0 6px;line-height:1.5;white-space:nowrap}
+details.filtres{background:var(--carte);border:1px solid var(--ligne);border-radius:var(--rayon);padding:10px 12px;margin:10px 0 0}
+details.filtres summary{font-weight:700;cursor:pointer;list-style-position:inside}
+details.filtres summary span{color:var(--accent);margin-left:6px}
+.grille-filtres{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.grille-filtres label{font-size:.85rem}
+.grille-filtres label{min-width:0}
+.grille-filtres select{min-height:44px;padding:8px;max-width:100%}
+@media (max-width:420px){.grille-filtres{grid-template-columns:1fr}}
+.bilan{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;color:var(--doux);font-size:.92rem}
+
+/* Étiquettes d'échéance */
+.liste{display:grid;gap:10px}
+.tag{display:grid;grid-template-columns:86px 1fr;background:var(--carte);border:1px solid var(--ligne);border-radius:var(--rayon);overflow:hidden;cursor:pointer}
+.talon{position:relative;background:var(--c);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:22px 6px 12px;border-right:2px dashed var(--carte)}
+.talon::before{content:"";position:absolute;top:9px;left:50%;width:10px;height:10px;margin-left:-5px;border-radius:50%;background:var(--carte)}
+.talon .j{font-family:var(--titre-police);font-size:2.5rem;font-weight:700;line-height:.95}
+.talon .m{font-size:.8rem;line-height:1.2}
+.s-retard .talon,.s-bientot .talon,.s-ok .talon,.s-planifier .talon{color:#fff}
+@media (prefers-color-scheme: dark){ .talon{color:#0F1A2E !important} }
+.corps{padding:12px 14px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.corps h3{font-size:1.15rem}
+.sous{margin:0;color:var(--doux);font-size:.92rem}
+.meta{margin:0;font-size:.9rem}
+.meta strong{color:var(--c)}
+.alerte{margin:0;color:var(--retard);font-weight:700;font-size:.88rem}
+.leve{margin:0;color:var(--ok);font-size:.88rem}
+.corps .petit{align-self:flex-start;margin-top:6px}
+
+.vide{background:var(--carte);border:1px dashed var(--ligne);border-radius:var(--rayon);padding:18px;color:var(--doux);margin:8px 0}
+.chargement{color:var(--doux);padding:24px 0}
+.entete-vue{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px}
+
+/* Lignes d'équipements */
+.lignes{list-style:none;margin:0;padding:0;background:var(--carte);border:1px solid var(--ligne);border-radius:var(--rayon);overflow:hidden}
+.lignes li{display:flex;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--ligne);cursor:pointer}
+.lignes li:first-child{border-top:0}
+.lignes li div{flex:1;min-width:0}
+.lignes small{display:block;color:var(--doux);font-size:.86rem}
+.lignes em{font-size:.8rem;color:var(--doux)}
+.lignes .etiquette{flex:none}
+.pastille{width:12px;height:12px;border-radius:50%;background:var(--c);flex:none}
+
+/* Fiche / modale */
+.modal{position:fixed;inset:0;z-index:20;background:rgba(10,18,32,.55);display:flex;align-items:flex-end;justify-content:center}
+.modal[hidden]{display:none}
+.feuille{background:var(--papier);width:100%;max-width:680px;max-height:94vh;overflow-y:auto;border-radius:16px 16px 0 0;padding:18px 16px calc(24px + env(safe-area-inset-bottom,0px));animation:monte .2s ease-out}
+@media (min-width:700px){.modal{align-items:center}.feuille{border-radius:16px;max-height:88vh}}
+@keyframes monte{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion: reduce){.feuille{animation:none}}
+.feuille-tete{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}
+.feuille-tete h2{margin:0}
+.fermer{background:var(--carte);border:1px solid var(--ligne);border-radius:50%;width:38px;height:38px;flex:none;cursor:pointer;font-size:1rem}
+.bloc{background:var(--carte);border:1px solid var(--ligne);border-radius:var(--rayon);padding:12px 14px;margin-bottom:10px}
+dl.infos{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:.92rem}
+dl.infos dt{color:var(--doux)}
+dl.infos dd{margin:0}
+.plan{border-left:5px solid var(--c)}
+.plan-tete{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.badge{font-weight:700;color:var(--c);white-space:nowrap;font-size:.9rem}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.histo{border-left:5px solid var(--rc)}
+.r-conforme{--rc:var(--ok)} .r-reserves{--rc:var(--bientot)} .r-non_conforme{--rc:var(--retard)}
+.histo-tete{display:flex;justify-content:space-between;gap:10px}
+.res{font-weight:700;color:var(--rc);font-size:.9rem}
+.histo p{margin:4px 0 0;font-size:.92rem}
+.obs{white-space:pre-wrap;color:var(--texte)}
+.discret{color:var(--doux);font-size:.8rem !important}
+.doc{display:inline-block;margin:6px 6px 0 0;background:var(--papier);border:1px solid var(--ligne);border-radius:6px;padding:5px 9px;cursor:pointer;font-size:.86rem}
+
+/* Formulaires */
+form{display:grid;gap:12px}
+label{display:grid;gap:4px;font-weight:700;font-size:.92rem}
+input:not([type=checkbox]):not([type=radio]),select,textarea{width:100%;padding:10px 12px;border:1px solid var(--ligne);border-radius:8px;background:var(--carte);font-weight:400;min-height:44px}
+textarea{resize:vertical}
+.deux{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label.case{display:flex;align-items:center;gap:10px;font-weight:400}
+label.case input{width:20px;height:20px}
+.aide{font-weight:400;color:var(--doux);font-size:.82rem}
+fieldset{border:0;padding:0;margin:0;display:grid;gap:6px}
+legend{font-weight:700;font-size:.92rem;margin-bottom:4px}
+.choix{display:flex;align-items:center;gap:10px;background:var(--carte);border:2px solid var(--ligne);border-radius:8px;padding:10px 12px;font-weight:700;cursor:pointer}
+.choix:has(input:checked){border-color:var(--rc);background:color-mix(in srgb,var(--rc) 10%,var(--carte))}
+.choix input{width:20px;height:20px;accent-color:var(--rc)}
+.boutons{display:flex;gap:10px;flex-wrap:wrap}
+.boutons .principal{flex:1}
+
+/* Connexion */
+.connexion{max-width:400px;margin:8vh auto 0}
+.connexion h1{font-size:2.6rem}
+.connexion > p{color:var(--doux);margin:.3rem 0 1.6rem}
+
+/* Plus */
+.ligne-admin{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid var(--ligne)}
+.ligne-admin:first-of-type{border-top:0}
+.ligne-admin div{min-width:0;flex:1}
+.ligne-admin small{display:block;color:var(--doux);overflow:hidden;text-overflow:ellipsis}
+.ligne-admin select{width:auto;min-height:38px;padding:6px 8px}
+.pile{display:grid;gap:8px}
+
+.etat-envoi{list-style:none;margin:0;padding:10px 12px;display:grid;gap:6px;font-size:.9rem;background:var(--carte);border:1px solid var(--ligne);border-radius:8px}
+.etat-envoi li{display:flex;flex-wrap:wrap;gap:0 8px;word-break:break-word}
+.etat-envoi li > span{width:1.2em;flex:none;font-weight:700;text-align:center}
+.etat-envoi small{flex-basis:100%;padding-left:calc(1.2em + 8px);color:var(--retard)}
+.e-ok > span{color:var(--ok)} .e-erreur{color:var(--retard)} .e-envoi > span{color:var(--accent)}
+#toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translate(-50%,20px);background:var(--encre);color:#fff;padding:11px 16px;border-radius:8px;opacity:0;pointer-events:none;transition:.2s;z-index:30;max-width:90vw;text-align:center}
+#toast.visible{opacity:1;transform:translate(-50%,0)}
+#toast.erreur{background:var(--retard)}
+@media (prefers-color-scheme: dark){#toast{background:#2B3A55}}
+</style>
+</head>
+<body class="deconnecte">
+
+<header class="barre">
+  <div class="titre">Contrôles périodiques<small>Commune de Pasly</small></div>
+  <button class="icone-btn" id="btnActualiser" onclick="App.actualiser()" aria-label="Actualiser">
+    <svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+  </button>
+</header>
+
+<main id="vue"><p class="chargement">Chargement…</p></main>
+
+<nav class="onglets" aria-label="Navigation principale">
+  <button data-vue="echeances" onclick="App.aller('echeances')">
+    <svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Échéances<span class="nb" id="nbRetard" hidden></span>
+  </button>
+  <button data-vue="equipements" onclick="App.aller('equipements')">
+    <svg class="i" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg>Équipements
+  </button>
+  <button data-vue="reserves" onclick="App.aller('reserves')">
+    <svg class="i" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.01"/></svg>Réserves
+  </button>
+  <button data-vue="plus" onclick="App.aller('plus')">
+    <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>Compte
+  </button>
+</nav>
+
+<div id="modal" class="modal" hidden onclick="if(event.target===this)App.fermer()">
+  <div class="feuille" role="dialog" aria-modal="true"><div id="modalContenu"></div></div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ==================================================================
+   CONFIGURATION — à remplir avec les valeurs de votre projet Supabase
+   (Supabase > Project Settings > API : « Project URL » et « anon public »)
+   ================================================================== */
+const SUPABASE_URL      = 'https://idswkljjaoajhevgsnfh.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_kaRpfQPyPZUKjLkWOEyUTQ_vRKLLU7c';
+
+'use strict';
+const configure = !SUPABASE_URL.includes('VOTRE-PROJET') && !SUPABASE_ANON_KEY.includes('VOTRE_CLE');
+const sb = configure ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+const FILTRES_VIDES = () => ({ periode:'', categorie:'', prestataire:'', reserves:'', texte:'' });
+const S = { profil:null, sites:[], equipements:[], echeances:[], vue:'echeances', filtreSite:'',
+  filtres:FILTRES_VIDES(), majOk:null, erreurMaj:null };
+
+/* Contrôles types proposés à la création — périodicités indicatives, à valider */
+const MODELES = [
+  { cat:'Chauffage',            libelle:'Entretien annuel de la chaudière',                  v:1, u:'an' },
+  { cat:'Chauffage',            libelle:'Ramonage des conduits',                              v:1, u:'an' },
+  { cat:'Climatisation',        libelle:"Contrôle d'étanchéité des fluides frigorigènes",     v:1, u:'an' },
+  { cat:'Climatisation',        libelle:'Inspection périodique (puissance > 12 kW)',          v:5, u:'an' },
+  { cat:'Défibrillateur (DAE)', libelle:'Vérification visuelle (voyant, électrodes, batterie)', v:1, u:'mois' },
+  { cat:'Défibrillateur (DAE)', libelle:'Maintenance par le fabricant ou le prestataire',     v:1, u:'an' },
+  { cat:'Aire de jeux',         libelle:'Inspection visuelle de routine',                     v:1, u:'semaine' },
+  { cat:'Aire de jeux',         libelle:'Inspection fonctionnelle',                           v:3, u:'mois' },
+  { cat:'Aire de jeux',         libelle:'Contrôle annuel principal',                          v:1, u:'an' },
+  { cat:'Sécurité incendie',    libelle:'Vérification des extincteurs',                       v:1, u:'an' },
+  { cat:'Sécurité incendie',    libelle:"Vérification du système d'alarme incendie",          v:1, u:'an' },
+  { cat:'Sécurité incendie',    libelle:'Vérification de l’éclairage de sécurité (BAES)',     v:1, u:'an' },
+  { cat:'Sécurité incendie',    libelle:'Vérification du désenfumage',                        v:1, u:'an' },
+  { cat:'Électricité',          libelle:'Vérification des installations électriques',         v:1, u:'an' },
+  { cat:'Gaz',                  libelle:'Vérification des installations de gaz',              v:1, u:'an' },
+  { cat:'Portes et portails',   libelle:'Entretien des portes et portails automatiques',      v:6, u:'mois' },
+];
+const CATEGORIES = [...new Set(MODELES.map(m => m.cat))];
+const RESULTATS = { conforme:'Conforme', reserves:'Avec réserves', non_conforme:'Non conforme' };
+const ROLES = { admin:'Administrateur', contributeur:'Contributeur', lecteur:'Lecture seule' };
+const TITRES = { retard:'En retard', planifier:'À planifier', bientot:'À prévoir', ok:'À jour' };
+const ORDRE = ['retard','planifier','bientot','ok'];
+const SECTIONS = { retard:'En retard', planifier:'Sans date : à planifier', bientot:'À prévoir (délai de rappel atteint)', ok:'À jour' };
+/* Tranches exclusives : chaque échéance appartient à une seule tranche (leur somme = total) */
+const PERIODES = {
+  retard:'En retard',
+  '0-30':'Dans les 30 jours (J0 à J+30)',
+  '31-90':'Dans 31 à 90 jours',
+  '91-365':'Dans 91 jours à 12 mois',
+  '366+':'Au-delà de 12 mois',
+  planifier:'Sans date : à planifier',
+};
+const TRANCHES = { '0-30':[0, 30], '31-90':[31, 90], '91-365':[91, 365], '366+':[366, Infinity] };
+
+/* ---------- Outils ---------- */
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad = n => String(n).padStart(2, '0');
+const isoLocal = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const aujourdhui = () => isoLocal(new Date());
+const dateObj = iso => new Date(iso + 'T00:00:00');
+const fmt = iso => iso ? dateObj(iso).toLocaleDateString('fr-FR', { day:'numeric', month:'long', year:'numeric' }) : '—';
+const ecart = iso => Math.round((dateObj(iso) - dateObj(aujourdhui())) / 86400000);
+const peutSaisir = () => ['admin','contributeur'].includes(S.profil?.role);
+const estAdmin = () => S.profil?.role === 'admin';
+const vide = v => (v === '' || v === undefined) ? null : v;
+
+function perio(v, u){
+  if (v === 1) return { jour:'Tous les jours', semaine:'Chaque semaine', mois:'Chaque mois', an:'Chaque année' }[u];
+  return `Tous les ${v} ${{ jour:'jours', semaine:'semaines', mois:'mois', an:'ans' }[u]}`;
+}
+function statut(e){
+  if (!e.prochaine) return 'planifier';
+  const j = ecart(e.prochaine);
+  if (j < 0) return 'retard';
+  if (j <= (e.rappel_jours ?? 30)) return 'bientot';
+  return 'ok';
+}
+function delai(e){
+  if (!e.prochaine) return 'Date du premier contrôle à définir';
+  const j = ecart(e.prochaine);
+  if (j < 0)  return `En retard de ${-j} jour${-j > 1 ? 's' : ''}`;
+  if (j === 0) return "Aujourd'hui";
+  return `Dans ${j} jour${j > 1 ? 's' : ''}`;
+}
+
+let toastT;
+function toast(msg, erreur = false){
+  const t = $('#toast'); t.textContent = msg; t.className = 'visible' + (erreur ? ' erreur' : '');
+  clearTimeout(toastT); toastT = setTimeout(() => t.className = '', 3800);
+}
+function traduire(e){
+  const m = e?.message || String(e);
+  if (e?.code === '23505') return 'Enregistrement refusé : il ferait doublon avec une donnée déjà présente.';
+  if (/row-level security|permission denied/i.test(m)) return 'Action non autorisée pour votre rôle.';
+  if (/Invalid login/i.test(m)) return 'Adresse e-mail ou mot de passe incorrect.';
+  if (/Failed to fetch|NetworkError/i.test(m)) return 'Connexion impossible. Vérifiez le réseau.';
+  return m;
+}
+async function q(promesse){
+  const { data, error } = await promesse;
+  if (error){ toast(traduire(error), true); throw error; }
+  return data;
+}
+function ouvrir(html){
+  $('#modalContenu').innerHTML = html;
+  $('#modal').hidden = false;
+  document.body.classList.add('bloque');
+}
+function fermer(){
+  $('#modal').hidden = true;
+  document.body.classList.remove('bloque');
+  $('#modalContenu').innerHTML = '';
+}
+const tete = titre => `<div class="feuille-tete"><h2>${titre}</h2><button class="fermer" onclick="App.fermer()" aria-label="Fermer">✕</button></div>`;
+
+function telecharger(nom, contenu, type){
+  const url = URL.createObjectURL(new Blob([contenu], { type }));
+  const a = document.createElement('a'); a.href = url; a.download = nom;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+
+async function compresser(f){
+  if (!f.type.startsWith('image/') || f.type === 'image/gif') return f;
+  try {
+    const bmp = await createImageBitmap(f);
+    const r = Math.min(1, 1800 / Math.max(bmp.width, bmp.height));
+    if (r === 1 && f.size < 1.5e6) return f;
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * r); c.height = Math.round(bmp.height * r);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.82));
+    return blob ? new File([blob], f.name.replace(/\.\w+$/, '') + '.jpg', { type:'image/jpeg' }) : f;
+  } catch { return f; }
+}
+
+/* Envois en cours, conservés en mémoire pour pouvoir reprendre sans rien recréer */
+const ENVOIS = {};
+const nouvelId = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+  : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); });
+const preparer = fichiers => [...fichiers].map((f, i) => ({ f, i, etat:'attente', chemin:null, fic:null, message:'' }));
+
+function afficherEtat(zone, entrees){
+  if (!zone || !entrees.length) return;
+  zone.hidden = false;
+  const sym = { attente:'•', envoi:'…', ok:'✓', erreur:'✗' };
+  zone.innerHTML = entrees.map(en => `<li class="e-${en.etat}"><span>${sym[en.etat]}</span>${esc(en.f.name)}${en.etat === 'erreur' ? `<small>${esc(en.message)}</small>` : ''}</li>`).join('');
+}
+
+/* Vérifie qu'un contrôle portant cet identifiant existe réellement et correspond au bon contrôle prévu.
+   Renvoie la ligne, ou null si elle n'existe pas. Une erreur de lecture est remontée (on ne conclut rien). */
+async function verifierControle(id, planId){
+  const { data, error } = await sb.from('controles').select('id, plan_id, date_realisation').eq('id', id).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  if (planId && data.plan_id !== planId) throw new Error("Identifiant déjà utilisé par un autre contrôle. Fermez le formulaire et recommencez la saisie.");
+  return data;
+}
+async function documentExiste(controleId, chemin){
+  const { data, error } = await sb.from('documents').select('id').eq('chemin', chemin).eq('controle_id', controleId).maybeSingle();
+  if (error) throw error;
+  return !!data;
+}
+
+/* Envoie chaque fichier une seule fois. Un fichier déjà stocké ou déjà rattaché
+   (chemin identique) est reconnu et n'est pas dupliqué. Renvoie le nombre d'échecs. */
+/* Mode test (adresse terminée par ?test, administrateur uniquement) : pannes simulées sur le prochain envoi */
+const PANNES = { actif:new URLSearchParams(location.search).has('test'), upload:0, document:0, fichier:-1 };
+function panne(type, en){
+  if (!PANNES.actif || !estAdmin()) return;
+  if (type === 'upload' && PANNES.upload > 0){ PANNES.upload--; throw new Error("Panne simulée : échec de l'envoi du fichier"); }
+  if (type === 'upload' && PANNES.fichier === en.i){ PANNES.fichier = -1; throw new Error("Panne simulée : échec de l'envoi de ce fichier"); }
+  if (type === 'document' && PANNES.document > 0){ PANNES.document--; throw new Error("Panne simulée : fichier stocké, mais document non enregistré"); }
+}
+const fichierDejaStocke = err => String(err?.statusCode) === '409' || err?.status === 409 || /already exists|duplicate/i.test(err?.message || '');
+
+let envoisEnCours = 0;
+window.addEventListener('beforeunload', ev => { if (envoisEnCours){ ev.preventDefault(); ev.returnValue = ''; } });
+
+async function envoyerFichiers(controleId, lot, entrees, bouton, zone){
+  envoisEnCours++;
+  try { return await envoyerFichiers_(controleId, lot, entrees, bouton, zone); }
+  finally { envoisEnCours--; }
+}
+async function envoyerFichiers_(controleId, lot, entrees, bouton, zone){
+  const total = entrees.length;
+  for (const en of entrees){
+    if (en.etat === 'ok') continue;
+    en.etat = 'envoi'; afficherEtat(zone, entrees);
+    if (bouton) bouton.textContent = `Envoi du fichier ${en.i + 1} sur ${total}…`;
+    try {
+      if (!en.chemin){
+        en.fic = await compresser(en.f);
+        en.chemin = `${controleId}/${lot}-${en.i}-${en.fic.name.replace(/[^\w.\-]/g, '_')}`;
+      }
+      if (!en.stocke){
+        panne('upload', en);
+        const up = await sb.storage.from('rapports').upload(en.chemin, en.fic, { contentType: en.fic.type || undefined });
+        /* 409 : le fichier est déjà à cet emplacement (chemin unique propre à ce lot : c'est notre envoi précédent) */
+        if (up.error && !fichierDejaStocke(up.error)) throw up.error;
+        en.stocke = true;
+      }
+      panne('document', en);
+      const ins = await sb.from('documents').insert({ controle_id:controleId, chemin:en.chemin, nom:en.f.name, type:en.fic.type });
+      /* Une erreur n'est acceptée que si le document est effectivement déjà rattaché à ce contrôle */
+      if (ins.error && !(await documentExiste(controleId, en.chemin))) throw ins.error;
+      en.etat = 'ok';
+    } catch (err){
+      en.etat = 'erreur'; en.message = traduire(err);
+    }
+    afficherEtat(zone, entrees);
+  }
+  return entrees.filter(x => x.etat !== 'ok').length;
+}
+
+/* ---------- Démarrage et connexion ---------- */
+async function demarrer(){
+  if (!configure){
+    $('#vue').innerHTML = `<section class="connexion"><h1>Configuration</h1>
+      <p>Renseignez l'adresse du projet Supabase et la clé publique en haut du fichier, dans la section CONFIGURATION.</p></section>`;
+    return;
+  }
+  sb.auth.onAuthStateChange((evenement) => {
+    if (evenement === 'PASSWORD_RECOVERY') setTimeout(() => App.changerMdp(true), 0);
+  });
+  const { data:{ session } } = await sb.auth.getSession();
+  if (session) await apresConnexion(); else afficherConnexion();
+}
+
+function afficherConnexion(){
+  document.body.classList.add('deconnecte');
+  S.profil = null;
+  $('#vue').innerHTML = `<section class="connexion">
+    <h1>Contrôles périodiques</h1>
+    <p>Commune de Pasly. Connectez-vous avec le compte fourni par la mairie.</p>
+    <form onsubmit="App.connexion(event)">
+      <label>Adresse e-mail<input name="email" type="email" required autocomplete="username"></label>
+      <label>Mot de passe<input name="mdp" type="password" required autocomplete="current-password"></label>
+      <button class="principal" type="submit">Se connecter</button>
+    </form>
+    <button class="lien" onclick="App.oubli()">Mot de passe oublié</button>
+  </section>`;
+}
+
+async function apresConnexion(){
+  const { data:{ user } } = await sb.auth.getUser();
+  if (!user) return afficherConnexion();
+  const { data } = await sb.from('profils').select('*').eq('id', user.id).maybeSingle();
+  S.profil = data;
+  document.body.classList.remove('deconnecte');
+  if (!S.profil){
+    $('#vue').innerHTML = `<p class="vide">Votre compte n'a pas de profil. Relancez le script SQL d'installation, puis reconnectez-vous.</p>
+      <button class="secondaire" onclick="App.deconnexion()">Se déconnecter</button>`;
+    return;
+  }
+  await recharger();
+}
+
+/* Recharge les données. En cas d'échec, les données déjà affichées sont conservées. */
+async function recharger(){
+  const btn = $('#btnActualiser');
+  btn.disabled = true; btn.setAttribute('aria-busy', 'true');
+  try {
+    const res = await Promise.all([
+      sb.from('sites').select('*').order('ordre').order('nom'),
+      sb.from('equipements').select('*').order('nom'),
+      sb.from('v_echeances').select('*').order('prochaine', { ascending:true, nullsFirst:true }),
+    ]);
+    const err = res.find(r => r.error);
+    if (err) throw err.error;
+    S.sites = res[0].data || []; S.equipements = res[1].data || []; S.echeances = res[2].data || [];
+    S.majOk = new Date(); S.erreurMaj = null;
+  } catch (err){
+    S.erreurMaj = { date:new Date(), message:traduire(err) };
+    toast('Actualisation impossible : ' + S.erreurMaj.message, true);
+  } finally {
+    btn.disabled = false; btn.removeAttribute('aria-busy');
+  }
+  const n = S.echeances.filter(e => statut(e) === 'retard').length;
+  const nb = $('#nbRetard'); nb.hidden = !n; nb.textContent = n;
+  await rendre();
+  return !S.erreurMaj;
+}
+
+const heureFr = d => `${d.getHours()} h ${pad(d.getMinutes())}`;
+function quand(d){
+  const hier = new Date(); hier.setDate(hier.getDate() - 1);
+  if (isoLocal(d) === aujourdhui()) return `aujourd'hui à ${heureFr(d)}`;
+  if (isoLocal(d) === isoLocal(hier)) return `hier à ${heureFr(d)}`;
+  return `le ${d.toLocaleDateString('fr-FR', { day:'numeric', month:'long', year:'numeric' })} à ${heureFr(d)}`;
+}
+function ligneMaj(){
+  let h = '';
+  if (S.erreurMaj){
+    h += `<p class="maj erreur" role="alert">Échec de l'actualisation ${quand(S.erreurMaj.date)} : ${esc(S.erreurMaj.message)}
+      <button class="lien" onclick="App.actualiser()">Réessayer</button></p>`;
+  }
+  if (S.majOk) h += `<p class="maj">${S.erreurMaj ? 'Données affichées actualisées' : 'Données actualisées'} ${quand(S.majOk)}</p>`;
+  return h;
+}
+
+async function rendre(){
+  document.querySelectorAll('.onglets button').forEach(b => b.classList.toggle('actif', b.dataset.vue === S.vue));
+  const v = $('#vue');
+  if (S.vue === 'echeances'){  v.innerHTML = vueEcheances(); majEcheances(); }
+  if (S.vue === 'equipements') v.innerHTML = vueEquipements();
+  if (S.vue === 'reserves')  { v.innerHTML = '<p class="chargement">Chargement…</p>'; v.innerHTML = await vueReserves(); }
+  if (S.vue === 'plus')      { v.innerHTML = '<p class="chargement">Chargement…</p>'; v.innerHTML = await vuePlus(); }
+}
+
+/* ---------- Vue : échéances ---------- */
+const norm = v => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const uniques = champ => [...new Set(S.echeances.map(e => (e[champ] || '').trim()).filter(Boolean))].sort((x, y) => x.localeCompare(y, 'fr'));
+const nbFiltres = () => [S.filtreSite, S.filtres.periode, S.filtres.categorie, S.filtres.prestataire, S.filtres.reserves].filter(Boolean).length;
+
+/* Période : "retard" = date dépassée ; "planifier" = aucune date ; tranches de jours exclusives sinon */
+function dansPeriode(e, p){
+  if (!p) return true;
+  if (p === 'planifier') return !e.prochaine;
+  if (!e.prochaine) return false;
+  const j = ecart(e.prochaine);
+  if (p === 'retard') return j < 0;
+  const t = TRANCHES[p];
+  return !!t && j >= t[0] && j <= t[1];
+}
+
+/* base = site, catégorie, prestataire, recherche (sert aux indicateurs) ; sinon + période et réserves */
+function filtrer(base = false){
+  const F = S.filtres, t = norm(F.texte).trim();
+  return S.echeances.filter(e => {
+    if (S.filtreSite && e.site_id !== S.filtreSite) return false;
+    if (F.categorie && (e.categorie || '').trim() !== F.categorie) return false;
+    if (F.prestataire === '__aucun' && (e.prestataire || '').trim()) return false;
+    if (F.prestataire && F.prestataire !== '__aucun' && (e.prestataire || '').trim() !== F.prestataire) return false;
+    if (t && !norm([e.libelle, e.equipement, e.site, e.categorie, e.prestataire].join(' ')).includes(t)) return false;
+    if (base) return true;
+    if (!dansPeriode(e, F.periode)) return false;
+    if (F.reserves && !(Number(e.reserves_ouvertes) > 0)) return false;
+    return true;
+  });
+}
+const selectionAffichee = () => filtrer();
+
+function vueEcheances(){
+  if (!S.majOk && S.erreurMaj){
+    return ligneMaj() + `<p class="vide">Les données n'ont pas pu être chargées. Vérifiez la connexion puis réessayez.</p>`;
+  }
+  if (!S.echeances.length){
+    return ligneMaj() + `<div class="vide">Aucun contrôle prévu pour l'instant.${estAdmin()
+      ? ` Ajoutez un équipement, puis les contrôles qui le concernent.<br><br><button class="principal petit" onclick="App.aller('equipements')">Ajouter un équipement</button>` : ''}</div>`;
+  }
+  const F = S.filtres;
+  const opt = (v, l, sel) => `<option value="${esc(v)}" ${v === sel ? 'selected' : ''}>${esc(l)}</option>`;
+  return ligneMaj() + `<div class="compteurs" id="compteurs"></div>
+  <div class="recherche">
+    <input type="search" id="recherche" placeholder="Rechercher…" value="${esc(F.texte)}"
+      oninput="App.filtre('texte', this.value)" aria-label="Rechercher" autocomplete="off">
+    <button class="effacer" id="effacerRecherche" onclick="App.effacerRecherche()" ${F.texte ? '' : 'hidden'}>Effacer</button>
+  </div>
+  <details class="filtres" ${nbFiltres() ? 'open' : ''}>
+    <summary>Filtres<span id="nbFiltres"></span></summary>
+    <div class="grille-filtres">
+      <label>Période<select id="fPeriode" onchange="App.filtre('periode', this.value)">
+        ${opt('', 'Toutes les échéances', F.periode)}${Object.entries(PERIODES).map(([k, v]) => opt(k, v, F.periode)).join('')}
+      </select></label>
+      <label>Site<select id="fSite" onchange="App.filtreSite(this.value)">
+        ${opt('', 'Tous les sites', S.filtreSite)}${S.sites.map(x => opt(x.id, x.nom, S.filtreSite)).join('')}
+      </select></label>
+      <label>Catégorie<select id="fCategorie" onchange="App.filtre('categorie', this.value)">
+        ${opt('', 'Toutes les catégories', F.categorie)}${uniques('categorie').map(c => opt(c, c, F.categorie)).join('')}
+      </select></label>
+      <label>Prestataire<select id="fPrestataire" onchange="App.filtre('prestataire', this.value)">
+        ${opt('', 'Tous les prestataires', F.prestataire)}${uniques('prestataire').map(c => opt(c, c, F.prestataire)).join('')}${opt('__aucun', 'Sans prestataire', F.prestataire)}
+      </select></label>
+      <label>Réserves<select id="fReserves" onchange="App.filtre('reserves', this.value)">
+        ${opt('', 'Indifférent', F.reserves)}${opt('oui', 'Avec réserves non levées', F.reserves)}
+      </select></label>
+    </div>
+    <button class="lien" onclick="App.effacerFiltres()">Réinitialiser les filtres</button>
+  </details>
+  <div id="resultats" aria-live="polite"></div>`;
+}
+
+/* Met à jour indicateurs et liste sans reconstruire la recherche ni les filtres (pas de requête) */
+function majEcheances(){
+  const zone = $('#resultats');
+  if (!zone) return;
+  const F = S.filtres, base = filtrer(true), liste = filtrer();
+  const nbP = p => base.filter(e => dansPeriode(e, p)).length;
+  const reserves = base.reduce((t, e) => t + (Number(e.reserves_ouvertes) || 0), 0);
+  const ind = [
+    { k:'retard',    cls:'s-retard',    n:nbP('retard'),    l:'En retard' },
+    { k:'0-30',      cls:'s-bientot',   n:nbP('0-30'),      l:'Dans les 30 jours' },
+    { k:'31-90',     cls:'s-periode',   n:nbP('31-90'),     l:'Dans 31 à 90 jours' },
+    { k:'planifier', cls:'s-planifier', n:nbP('planifier'), l:'Sans date (à planifier)' },
+  ];
+  const auDela = nbP('91-365') + nbP('366+');
+  $('#compteurs').innerHTML = ind.map(i =>
+    `<button class="compteur ${i.cls} ${F.periode === i.k ? 'actif' : ''}" onclick="App.indicateur('${i.k}')" aria-pressed="${F.periode === i.k}">
+       <b>${i.n}</b><span>${i.l}</span></button>`).join('') +
+    `<button class="compteur s-reserves ${F.reserves ? 'actif' : ''}" onclick="App.indicateur('reserves')" aria-pressed="${!!F.reserves}">
+       <b>${reserves}</b><span>Réserve${reserves > 1 ? 's' : ''} non levée${reserves > 1 ? 's' : ''}</span></button>
+     <p class="aide" style="grid-column:1 / -1;margin:0">${base.length} contrôle${base.length > 1 ? 's' : ''} au total : ces quatre compteurs + ${auDela} au-delà de 90 jours.</p>`;
+  const n = nbFiltres();
+  $('#nbFiltres').textContent = n ? `(${n} actif${n > 1 ? 's' : ''})` : '';
+  const eff = $('#effacerRecherche'); if (eff) eff.hidden = !F.texte;
+  ['fPeriode','fSite','fCategorie','fPrestataire','fReserves'].forEach((id, i) => {
+    const el = $('#' + id); if (el) el.value = [F.periode, S.filtreSite, F.categorie, F.prestataire, F.reserves][i];
+  });
+
+  const groupes = Object.fromEntries(ORDRE.map(k => [k, []]));
+  liste.forEach(e => groupes[statut(e)].push(e));
+  const actifs = n || F.texte;
+  let h = `<div class="bilan"><span>${liste.length} contrôle${liste.length > 1 ? 's' : ''}${actifs ? ` sur ${S.echeances.length}` : ''}</span>
+    ${liste.length ? `<button class="lien" onclick="App.exportCSV(true)">Exporter la sélection</button>` : ''}</div>`;
+  if (!liste.length){
+    h += `<div class="vide">Aucun contrôle ne correspond${F.texte ? ` à « ${esc(F.texte)} »` : ''}${n ? ' avec les filtres choisis' : ''}.
+      ${actifs ? `<br><button class="lien" onclick="App.effacerFiltres()">Réinitialiser la recherche et les filtres</button>` : ''}</div>`;
+  }
+  for (const k of ORDRE){
+    if (!groupes[k].length) continue;
+    h += `<h2>${SECTIONS[k]}</h2><div class="liste">${groupes[k].map(carteTag).join('')}</div>`;
+  }
+  zone.innerHTML = h;
+}
+
+function carteTag(e){
+  const s = statut(e);
+  const talon = e.prochaine
+    ? `<span class="j">${dateObj(e.prochaine).getDate()}</span><span class="m">${dateObj(e.prochaine).toLocaleDateString('fr-FR', { month:'short', year:'numeric' })}</span>`
+    : `<span class="m">à planifier</span>`;
+  const r = Number(e.reserves_ouvertes) || 0;
+  return `<article class="tag s-${s}" onclick="App.fiche('${e.equipement_id}')">
+    <div class="talon">${talon}</div>
+    <div class="corps">
+      <span class="etiquette">${TITRES[s]}</span>
+      <h3>${esc(e.libelle)}</h3>
+      <p class="sous">${esc(e.equipement)}, ${esc(e.site)}${e.categorie ? `, ${esc(e.categorie)}` : ''}</p>
+      <p class="meta"><strong>${delai(e)}</strong><br>${perio(e.periodicite_valeur, e.periodicite_unite)}${e.prestataire ? `, ${esc(e.prestataire)}` : ''}</p>
+      ${r ? `<p class="alerte">${r} réserve${r > 1 ? 's' : ''} non levée${r > 1 ? 's' : ''}</p>` : ''}
+      ${peutSaisir() ? `<button class="petit" onclick="event.stopPropagation();App.saisir('${e.plan_id}')">Enregistrer un contrôle</button>` : ''}
+    </div>
+  </article>`;
+}
+
+/* ---------- Vue : équipements ---------- */
+function pireStatut(id){
+  const l = S.echeances.filter(e => e.equipement_id === id).map(statut);
+  if (!l.length) return 'aucun';
+  return ORDRE.find(k => l.includes(k));
+}
+function etiquetteEquipement(id){
+  const st = pireStatut(id);
+  return `<span class="etiquette s-${st}">${st === 'aucun' ? 'Aucun contrôle' : TITRES[st]}</span>`;
+}
+function vueEquipements(){
+  let h = ligneMaj() + `<div class="entete-vue"><h1>Équipements</h1>${estAdmin() && S.sites.length ? `<button class="principal petit" onclick="App.formEquipement()">Ajouter</button>` : ''}</div>`;
+  if (!S.sites.length) return h + `<p class="vide">Aucun site enregistré.${estAdmin() ? ' Créez un site dans l’onglet Compte.' : ''}</p>`;
+  for (const s of S.sites){
+    const eq = S.equipements.filter(e => e.site_id === s.id);
+    h += `<h2>${esc(s.nom)}</h2>`;
+    if (!eq.length){ h += `<p class="vide">Aucun équipement enregistré.</p>`; continue; }
+    h += `<ul class="lignes">${eq.map(e => `<li onclick="App.fiche('${e.id}')">
+      <span class="pastille s-${e.actif ? pireStatut(e.id) : 'aucun'}" aria-hidden="true"></span>
+      <div><b>${esc(e.nom)}</b><small>${esc([e.categorie, e.localisation].filter(Boolean).join(', ')) || '&nbsp;'}</small></div>
+      ${e.actif ? etiquetteEquipement(e.id) : '<em>hors service</em>'}</li>`).join('')}</ul>`;
+  }
+  return h;
+}
+
+/* ---------- Vue : réserves ---------- */
+async function vueReserves(){
+  const liste = await q(sb.from('controles')
+    .select('*, plans(libelle, equipement_id, equipements(nom, sites(nom)))')
+    .neq('resultat', 'conforme').eq('reserve_levee', false)
+    .order('date_realisation', { ascending:true }));
+  let h = `<h1>Réserves à lever</h1>`;
+  if (!liste.length) return h + `<p class="vide">Aucune réserve en attente. Tous les contrôles avec réserves ont été traités.</p>`;
+  return h + `<div class="liste" style="margin-top:12px">${liste.map(c => `
+    <div class="bloc histo r-${c.resultat}">
+      <div class="histo-tete"><b>${esc(c.plans?.libelle)}</b><span class="res">${RESULTATS[c.resultat]}</span></div>
+      <p class="sous">${esc(c.plans?.equipements?.nom)}, ${esc(c.plans?.equipements?.sites?.nom)}</p>
+      <p>Contrôle du ${fmt(c.date_realisation)}${c.intervenant ? `, par ${esc(c.intervenant)}` : ''}</p>
+      ${c.observations ? `<p class="obs">${esc(c.observations)}</p>` : ''}
+      <div class="actions">
+        ${peutSaisir() ? `<button class="petit" onclick="App.leverReserve('${c.id}')">Lever la réserve</button>` : ''}
+        <button class="petit secondaire" onclick="App.fiche('${c.plans?.equipement_id}')">Voir l'équipement</button>
+      </div>
+    </div>`).join('')}</div>`;
+}
+
+/* ---------- Vue : compte et administration ---------- */
+async function vuePlus(){
+  const p = S.profil;
+  let h = `<h1>Compte</h1>
+  <div class="bloc" style="margin-top:12px">
+    <form onsubmit="App.enregistrerNom(event)">
+      <label>Votre nom<input name="nom" value="${esc(p.nom)}" required></label>
+      <p class="aide" style="margin:0">${esc(p.email)}, ${ROLES[p.role]}</p>
+      <div class="boutons"><button class="secondaire petit" type="submit">Enregistrer le nom</button>
+      <button class="secondaire petit" type="button" onclick="App.changerMdp()">Changer le mot de passe</button>
+      <button class="danger petit" type="button" onclick="App.deconnexion()">Se déconnecter</button></div>
+    </form>
+  </div>
+  <h2>Exports</h2>
+  <div class="bloc pile">
+    <button class="principal" onclick="App.exportICS()">Ajouter les échéances à mon agenda</button>
+    <p class="aide" style="margin:0">Fichier calendrier avec un rappel avant chaque contrôle. À refaire après des changements importants.</p>
+    <button class="secondaire" onclick="App.exportCSV()">Exporter le tableau des échéances (Excel)</button>
+  </div>`;
+  if (!estAdmin()) return h;
+
+  const profils = await q(sb.from('profils').select('*').order('email'));
+  h += `<h2>Sites</h2><div class="bloc">
+    ${S.sites.map(s => `<div class="ligne-admin"><div><b>${esc(s.nom)}</b><small>${S.equipements.filter(e => e.site_id === s.id).length} équipement(s)</small></div>
+      <button class="petit secondaire" onclick="App.renommerSite('${s.id}')">Renommer</button>
+      <button class="petit danger" onclick="App.supprimerSite('${s.id}')">Supprimer</button></div>`).join('')}
+    <form onsubmit="App.ajouterSite(event)" style="margin-top:10px;grid-template-columns:1fr auto;align-items:end">
+      <label>Nouveau site<input name="nom" required placeholder="Église, stade, atelier…"></label>
+      <button class="principal" type="submit">Ajouter</button>
+    </form></div>
+  <h2>Utilisateurs</h2><div class="bloc">
+    ${profils.map(u => `<div class="ligne-admin"><div><b>${esc(u.nom || u.email)}</b><small>${esc(u.email)}</small></div>
+      <select onchange="App.role('${u.id}', this.value)" ${u.id === p.id ? 'disabled' : ''} aria-label="Rôle">
+        ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}
+      </select></div>`).join('')}
+    <p class="aide">Pour ajouter une personne : Supabase, Authentication, Users, « Add user ». Elle apparaît ici en lecture seule ; choisissez ensuite son rôle.</p>
+  </div>
+  <h2>Pièces jointes</h2><div class="bloc pile">
+    <button class="secondaire" onclick="App.auditDocs()">Vérifier les pièces jointes</button>
+    <p class="aide" style="margin:0">Recherche les documents en double, les fichiers introuvables et les fichiers stockés sans être rattachés à un contrôle.</p>
+  </div>
+  ${PANNES.actif ? `<h2>Mode test : pannes simulées</h2><div class="bloc pile">
+    <p class="aide" style="margin:0">Chaque panne s'applique une seule fois, au prochain envoi. Les vrais fichiers sont envoyés dans Supabase.</p>
+    <button class="secondaire" onclick="App.armerPanne('upload')">Échec de l'envoi du prochain fichier</button>
+    <button class="secondaire" onclick="App.armerPanne('document')">Fichier stocké, mais document non enregistré</button>
+    <button class="secondaire" onclick="App.armerPanne('fichier')">Échec du 2ᵉ fichier seulement</button>
+    <button class="lien" onclick="App.armerPanne('aucune')">Désarmer les pannes</button>
+  </div>` : ''}
+  <p class="aide">Les périodicités proposées pour les contrôles types sont indicatives. Faites-les valider selon la catégorie de chaque bâtiment et les préconisations des fabricants.</p>`;
+  return h;
+}
+
+/* ==================================================================
+   Actions
+   ================================================================== */
+const App = {
+  fermer(){
+    if (envoisEnCours && !confirm("Un envoi de fichiers est en cours. Fermer quand même ? Les fichiers non envoyés pourront être ajoutés plus tard depuis l'historique.")) return;
+    fermer();
+  },
+  aller(vue){ S.vue = vue; window.scrollTo(0, 0); rendre(); },
+  filtreSite(id){ S.filtreSite = id; majEcheances(); },
+  filtre(cle, valeur){ S.filtres[cle] = valeur; majEcheances(); },
+  indicateur(k){
+    if (k === 'reserves') S.filtres.reserves = S.filtres.reserves ? '' : 'oui';
+    else S.filtres.periode = S.filtres.periode === k ? '' : k;
+    const d = document.querySelector('details.filtres'); if (d && nbFiltres()) d.open = true;
+    majEcheances();
+  },
+  effacerRecherche(){
+    S.filtres.texte = '';
+    const r = $('#recherche'); if (r){ r.value = ''; r.focus(); }
+    majEcheances();
+  },
+  effacerFiltres(){
+    S.filtreSite = '';
+    S.filtres = FILTRES_VIDES();
+    rendre();
+  },
+  async actualiser(){ if (await recharger()) toast('Données à jour'); },
+
+  async connexion(ev){
+    ev.preventDefault();
+    const f = new FormData(ev.target), b = ev.target.querySelector('button');
+    b.disabled = true;
+    try {
+      await q(sb.auth.signInWithPassword({ email:f.get('email').trim(), password:f.get('mdp') }));
+      await apresConnexion();
+    } catch {} finally { b.disabled = false; }
+  },
+  async oubli(){
+    const email = prompt('Adresse e-mail du compte :');
+    if (!email) return;
+    try {
+      await q(sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: location.origin + location.pathname }));
+      toast('Un lien de réinitialisation a été envoyé.');
+    } catch {}
+  },
+  changerMdp(recuperation = false){
+    ouvrir(tete(recuperation ? 'Choisir un nouveau mot de passe' : 'Changer le mot de passe') + `
+      <form onsubmit="App.enregistrerMdp(event)">
+        <label>Nouveau mot de passe<input name="a" type="password" minlength="8" required autocomplete="new-password"></label>
+        <label>Confirmer<input name="b" type="password" minlength="8" required autocomplete="new-password"></label>
+        <button class="principal" type="submit">Enregistrer le mot de passe</button>
+      </form>`);
+  },
+  async enregistrerMdp(ev){
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    if (f.get('a') !== f.get('b')) return toast('Les deux mots de passe sont différents.', true);
+    try {
+      await q(sb.auth.updateUser({ password:f.get('a') }));
+      fermer(); toast('Mot de passe enregistré');
+      if (!S.profil) await apresConnexion();
+    } catch {}
+  },
+  async deconnexion(){ await sb.auth.signOut(); fermer(); afficherConnexion(); },
+  async enregistrerNom(ev){
+    ev.preventDefault();
+    const nom = new FormData(ev.target).get('nom').trim();
+    try { await q(sb.from('profils').update({ nom }).eq('id', S.profil.id)); S.profil.nom = nom; toast('Nom enregistré'); } catch {}
+  },
+
+  /* Fiche équipement */
+  async fiche(id){
+    const e = S.equipements.find(x => x.id === id);
+    if (!e) return;
+    const site = S.sites.find(s => s.id === e.site_id);
+    ouvrir('<p class="chargement">Chargement…</p>');
+    let plans, hist = [];
+    try {
+      plans = await q(sb.from('plans').select('*').eq('equipement_id', id).order('libelle'));
+      if (plans.length) hist = await q(sb.from('controles').select('*, documents(*), profils(nom)')
+        .in('plan_id', plans.map(p => p.id)).order('date_realisation', { ascending:false }).limit(100));
+    } catch { return fermer(); }
+    const ech = Object.fromEntries(S.echeances.filter(x => x.equipement_id === id).map(x => [x.plan_id, x]));
+    const libPlan = Object.fromEntries(plans.map(p => [p.id, p.libelle]));
+    const infos = [['Catégorie', e.categorie], ['Marque', e.marque], ['Modèle', e.modele], ['N° de série', e.numero_serie], ['Notes', e.notes]].filter(x => x[1]);
+
+    let h = `<div class="feuille-tete"><div><h2>${esc(e.nom)}</h2><p class="sous">${esc(site?.nom)}${e.localisation ? `, ${esc(e.localisation)}` : ''}${e.actif ? '' : ', hors service'}</p></div>
+      <button class="fermer" onclick="App.fermer()" aria-label="Fermer">✕</button></div>`;
+    if (infos.length || estAdmin()){
+      h += `<div class="bloc">${infos.length ? `<dl class="infos">${infos.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
+        ${estAdmin() ? `<div class="actions"><button class="petit secondaire" onclick="App.formEquipement('${e.id}')">Modifier l'équipement</button></div>` : ''}</div>`;
+    }
+    h += `<h2>Contrôles prévus</h2>`;
+    if (!plans.length) h += `<p class="vide">Aucun contrôle prévu pour cet équipement.</p>`;
+    for (const p of plans){
+      const x = ech[p.id], st = x ? statut(x) : 'aucun';
+      h += `<div class="bloc plan s-${st}">
+        <div class="plan-tete"><b>${esc(p.libelle)}</b><span class="badge">${!x ? 'désactivé' : x.prochaine ? fmt(x.prochaine) : 'à planifier'}</span></div>
+        <p class="meta">${perio(p.periodicite_valeur, p.periodicite_unite)}${x ? `, ${delai(x).toLowerCase()}` : ''}
+        ${p.prestataire ? `<br>${esc(p.prestataire)}${p.contact ? `, ${esc(p.contact)}` : ''}` : ''}</p>
+        <div class="actions">
+          ${peutSaisir() && x ? `<button class="petit" onclick="App.saisir('${p.id}')">Enregistrer un contrôle</button>` : ''}
+          ${estAdmin() ? `<button class="petit secondaire" onclick="App.formPlan('${e.id}','${p.id}')">Modifier</button>` : ''}
+        </div></div>`;
+    }
+    if (estAdmin()) h += `<button class="principal" style="width:100%" onclick="App.formPlan('${e.id}')">Ajouter un contrôle prévu</button>`;
+
+    h += `<h2>Historique</h2>`;
+    if (!hist.length) h += `<p class="vide">Aucun contrôle enregistré.</p>`;
+    for (const c of hist){
+      h += `<div class="bloc histo r-${c.resultat}">
+        <div class="histo-tete"><b>${fmt(c.date_realisation)}</b><span class="res">${RESULTATS[c.resultat]}</span></div>
+        <p>${esc(libPlan[c.plan_id])}${c.intervenant ? `, par ${esc(c.intervenant)}` : ''}</p>
+        ${c.observations ? `<p class="obs">${esc(c.observations)}</p>` : ''}
+        ${c.resultat !== 'conforme' ? (c.reserve_levee ? `<p class="leve">Réserve levée le ${fmt(c.date_levee)}</p>` : `<p class="alerte">Réserve non levée</p>`) : ''}
+        ${(c.documents || []).map(d => `<button class="doc" onclick="App.ouvrirDoc('${encodeURIComponent(d.chemin)}')">📎 ${esc(d.nom || 'Document')}</button>`).join('')}
+        ${peutSaisir() ? `<div class="actions"><button class="petit secondaire" onclick="App.ajouterDoc('${c.id}','${e.id}')">Ajouter un document</button></div>` : ''}
+        <p class="discret">Saisi par ${esc(c.profils?.nom || 'un utilisateur supprimé')}</p>
+        ${estAdmin() ? `<button class="lien danger" onclick="App.supprimerControle('${c.id}','${e.id}')">Supprimer ce contrôle</button>` : ''}
+      </div>`;
+    }
+    $('#modalContenu').innerHTML = h;
+  },
+
+  async ouvrirDoc(chemin){
+    const w = window.open('', '_blank');
+    try {
+      const d = await q(sb.storage.from('rapports').createSignedUrl(decodeURIComponent(chemin), 3600));
+      if (w) w.location = d.signedUrl; else location.href = d.signedUrl;
+    } catch { if (w) w.close(); }
+  },
+
+  /* Équipements */
+  formEquipement(id){
+    const e = id ? S.equipements.find(x => x.id === id) : { site_id:S.filtreSite, actif:true };
+    ouvrir(tete(id ? "Modifier l'équipement" : 'Nouvel équipement') + `
+      <form onsubmit="App.enregistrerEquipement(event,'${id || ''}')">
+        <label>Site<select name="site_id" required>${S.sites.map(s => `<option value="${s.id}" ${s.id === e.site_id ? 'selected' : ''}>${esc(s.nom)}</option>`).join('')}</select></label>
+        <label>Nom<input name="nom" required value="${esc(e.nom)}" placeholder="Chaudière gaz, DAE du hall…"></label>
+        <label>Catégorie<input name="categorie" list="cats" value="${esc(e.categorie)}"></label>
+        <datalist id="cats">${CATEGORIES.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+        <label>Emplacement<input name="localisation" value="${esc(e.localisation)}" placeholder="Chaufferie, hall d'entrée…"></label>
+        <div class="deux"><label>Marque<input name="marque" value="${esc(e.marque)}"></label><label>Modèle<input name="modele" value="${esc(e.modele)}"></label></div>
+        <label>Numéro de série<input name="numero_serie" value="${esc(e.numero_serie)}"></label>
+        <label>Notes<textarea name="notes" rows="3">${esc(e.notes)}</textarea></label>
+        ${id ? `<label class="case"><input type="checkbox" name="actif" ${e.actif ? 'checked' : ''}> Équipement en service</label>` : ''}
+        <div class="boutons"><button class="principal" type="submit">Enregistrer</button>
+          ${id ? `<button type="button" class="danger" onclick="App.supprimerEquipement('${id}')">Supprimer</button>` : ''}</div>
+      </form>`);
+  },
+  async enregistrerEquipement(ev, id){
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    const d = {};
+    ['site_id','nom','categorie','localisation','marque','modele','numero_serie','notes'].forEach(k => d[k] = vide((f.get(k) || '').trim()));
+    if (id) d.actif = f.get('actif') === 'on';
+    try {
+      const r = id ? await q(sb.from('equipements').update(d).eq('id', id).select().single())
+                   : await q(sb.from('equipements').insert(d).select().single());
+      toast('Équipement enregistré');
+      await recharger();
+      App.fiche(r.id);
+    } catch {}
+  },
+  async supprimerEquipement(id){
+    if (!confirm("Supprimer cet équipement, ses contrôles prévus et tout son historique ? Pour le garder en archive, décochez plutôt « en service ».")) return;
+    try { await q(sb.from('equipements').delete().eq('id', id)); fermer(); toast('Équipement supprimé'); await recharger(); } catch {}
+  },
+
+  /* Contrôles prévus */
+  async formPlan(eqId, planId){
+    let p = { periodicite_valeur:1, periodicite_unite:'an', rappel_jours:30, obligatoire:true, actif:true };
+    if (planId){ try { p = await q(sb.from('plans').select('*').eq('id', planId).single()); } catch { return; } }
+    const e = S.equipements.find(x => x.id === eqId);
+    const modeles = MODELES.filter(m => !e?.categorie || m.cat === e.categorie);
+    const liste = modeles.length ? modeles : MODELES;
+    ouvrir(tete(planId ? 'Modifier le contrôle prévu' : 'Nouveau contrôle prévu') + `
+      <p class="sous" style="margin:-6px 0 12px">${esc(e?.nom)}</p>
+      <form onsubmit="App.enregistrerPlan(event,'${eqId}','${planId || ''}')">
+        ${planId ? '' : `<label>Contrôle type<select onchange="App.appliquerModele(this)">
+          <option value="">Choisir un modèle (facultatif)</option>
+          ${liste.map(m => `<option value="${MODELES.indexOf(m)}">${esc(m.cat)} : ${esc(m.libelle)}</option>`).join('')}
+        </select></label>`}
+        <label>Intitulé du contrôle<input name="libelle" required value="${esc(p.libelle)}"></label>
+        <div class="deux">
+          <label>Tous les<input name="periodicite_valeur" type="number" min="1" required value="${p.periodicite_valeur}"></label>
+          <label>&nbsp;<select name="periodicite_unite">${['jour','semaine','mois','an'].map(u => `<option value="${u}" ${p.periodicite_unite === u ? 'selected' : ''}>${{ jour:'jour(s)', semaine:'semaine(s)', mois:'mois', an:'an(s)' }[u]}</option>`).join('')}</select></label>
+        </div>
+        <label>Date du premier contrôle attendu<input name="date_depart" type="date" value="${esc(p.date_depart)}">
+          <span class="aide">Sert uniquement tant qu'aucun contrôle n'a été enregistré. Pour reprendre l'historique, enregistrez plutôt le dernier contrôle réalisé.</span></label>
+        <label>Prestataire<input name="prestataire" value="${esc(p.prestataire)}"></label>
+        <label>Contact du prestataire<input name="contact" value="${esc(p.contact)}" placeholder="Téléphone, e-mail"></label>
+        <label>Prévenir combien de jours avant<input name="rappel_jours" type="number" min="0" value="${p.rappel_jours}"></label>
+        <label class="case"><input type="checkbox" name="obligatoire" ${p.obligatoire ? 'checked' : ''}> Contrôle réglementaire obligatoire</label>
+        <label>Notes<textarea name="notes" rows="2">${esc(p.notes)}</textarea></label>
+        ${planId ? `<label class="case"><input type="checkbox" name="actif" ${p.actif ? 'checked' : ''}> Contrôle actif</label>` : ''}
+        <div class="boutons"><button class="principal" type="submit">Enregistrer</button>
+          ${planId ? `<button type="button" class="danger" onclick="App.supprimerPlan('${planId}','${eqId}')">Supprimer</button>` : ''}</div>
+        <button type="button" class="lien" onclick="App.fiche('${eqId}')">Retour à l'équipement</button>
+      </form>`);
+  },
+  appliquerModele(sel){
+    const m = MODELES[sel.value]; if (!m) return;
+    const f = sel.form;
+    f.libelle.value = m.libelle; f.periodicite_valeur.value = m.v; f.periodicite_unite.value = m.u;
+  },
+  async enregistrerPlan(ev, eqId, planId){
+    ev.preventDefault();
+    const f = new FormData(ev.target);
+    const d = {
+      equipement_id: eqId,
+      libelle: f.get('libelle').trim(),
+      periodicite_valeur: parseInt(f.get('periodicite_valeur'), 10),
+      periodicite_unite: f.get('periodicite_unite'),
+      date_depart: vide(f.get('date_depart')),
+      prestataire: vide(f.get('prestataire').trim()),
+      contact: vide(f.get('contact').trim()),
+      rappel_jours: parseInt(f.get('rappel_jours') || '30', 10),
+      obligatoire: f.get('obligatoire') === 'on',
+      notes: vide(f.get('notes').trim()),
+    };
+    if (planId) d.actif = f.get('actif') === 'on';
+    try {
+      if (planId) await q(sb.from('plans').update(d).eq('id', planId));
+      else await q(sb.from('plans').insert(d));
+      toast('Contrôle prévu enregistré');
+      await recharger();
+      App.fiche(eqId);
+    } catch {}
+  },
+  async supprimerPlan(planId, eqId){
+    if (!confirm('Supprimer ce contrôle prévu et son historique ? Pour le conserver, décochez plutôt « Contrôle actif ».')) return;
+    try { await q(sb.from('plans').delete().eq('id', planId)); toast('Contrôle prévu supprimé'); await recharger(); App.fiche(eqId); } catch {}
+  },
+
+  /* Saisie d'un contrôle réalisé */
+  saisir(planId){
+    const x = S.echeances.find(e => e.plan_id === planId);
+    if (!x) return;
+    ouvrir(tete('Enregistrer un contrôle') + `
+      <p style="margin:-6px 0 14px"><b>${esc(x.libelle)}</b><br><span class="sous">${esc(x.equipement)}, ${esc(x.site)}</span></p>
+      <form data-id="${nouvelId()}" onsubmit="App.enregistrerControle(event,'${planId}','${x.equipement_id}')">
+        <label>Date du contrôle<input type="date" name="date_realisation" required value="${aujourdhui()}" max="${aujourdhui()}"></label>
+        <label>Intervenant<input name="intervenant" value="${esc(x.prestataire)}"></label>
+        <fieldset><legend>Résultat</legend>
+          ${Object.entries(RESULTATS).map(([k, v], i) => `<label class="choix r-${k}"><input type="radio" name="resultat" value="${k}" ${i === 0 ? 'checked' : ''}>${v}</label>`).join('')}
+        </fieldset>
+        <label>Observations<textarea name="observations" rows="3" placeholder="Réserves, pièces changées, remarques…"></textarea></label>
+        <label>Rapport ou photos<input type="file" name="fichiers" multiple accept="image/*,application/pdf">
+          <span class="aide">Photographiez le rapport ou joignez le PDF du prestataire. Ils pourront aussi être ajoutés plus tard.</span></label>
+        <ul class="etat-envoi" hidden></ul>
+        <div class="boutons"><button class="principal" type="submit">Enregistrer le contrôle</button></div>
+        <button type="button" class="secondaire" data-abandon hidden onclick="App.abandonnerEnvoi(this,'')">Terminer sans les fichiers restants</button>
+      </form>`);
+  },
+  async enregistrerControle(ev, planId, eqId){
+    ev.preventDefault();
+    const form = ev.target, id = form.dataset.id;
+    const b = form.querySelector('button[type=submit]'), zone = form.querySelector('.etat-envoi'), abandon = form.querySelector('[data-abandon]');
+    const e = ENVOIS[id] ??= { cree:false, lot:nouvelId().slice(0, 8), entrees:[] };
+    b.disabled = true; abandon.hidden = true;
+    try {
+      /* Étape 1 : création du contrôle, une seule fois (identifiant fixé à l'ouverture du formulaire) */
+      if (!e.cree){
+        e.entrees = preparer(form.fichiers.files);
+        const f = new FormData(form), date = f.get('date_realisation');
+        b.textContent = 'Vérification…';
+        const deja = await q(sb.from('controles').select('id').eq('plan_id', planId).eq('date_realisation', date).neq('id', id).limit(1));
+        if (deja.length && !confirm(`Un contrôle est déjà enregistré pour le ${fmt(date)}. En créer un second ?`)){
+          b.disabled = false; b.textContent = 'Enregistrer le contrôle'; return;
+        }
+        b.textContent = 'Enregistrement du contrôle…';
+        const { error } = await sb.from('controles').insert({
+          id, plan_id: planId, date_realisation: date,
+          intervenant: vide(f.get('intervenant').trim()),
+          resultat: f.get('resultat'),
+          observations: vide(f.get('observations').trim()),
+        });
+        /* Après une erreur, on ne suppose rien : on vérifie que CE contrôle existe réellement
+           (cas d'une réponse perdue alors que l'enregistrement a abouti). Sinon, l'erreur est affichée. */
+        if (error && !(await verifierControle(id, planId))) throw error;
+        e.cree = true;
+        form.querySelectorAll('input, textarea, select').forEach(x => x.disabled = true);
+      }
+      /* Étape 2 : pièces jointes, reprises là où elles se sont arrêtées,
+         uniquement si le contrôle existe bien dans la base */
+      else if (!(await verifierControle(id, planId))){
+        e.cree = false;
+        form.querySelectorAll('input, textarea, select').forEach(x => x.disabled = false);
+        throw new Error("Ce contrôle n'existe plus dans la base. Vérifiez les informations puis enregistrez-le à nouveau.");
+      }
+      const restants = await envoyerFichiers(id, e.lot, e.entrees, b, zone);
+      if (restants){
+        b.disabled = false;
+        b.textContent = `Reprendre l'envoi (${restants} fichier${restants > 1 ? 's' : ''})`;
+        abandon.hidden = false;
+        toast("Contrôle enregistré, mais certains fichiers n'ont pas été envoyés.", true);
+        recharger();
+        return;
+      }
+      delete ENVOIS[id];
+      fermer(); toast('Contrôle enregistré');
+      await recharger();
+    } catch (err){
+      toast(traduire(err), true);
+      b.disabled = false;
+      b.textContent = e.cree ? "Reprendre l'envoi" : "Réessayer l'enregistrement";
+    }
+  },
+  async abandonnerEnvoi(bouton, eqId){
+    const e = ENVOIS[bouton.form.dataset.id];
+    const isoles = (e?.entrees || []).filter(en => en.stocke && en.etat !== 'ok').map(en => en.chemin);
+    if (isoles.length) await sb.storage.from('rapports').remove(isoles).catch(() => {});  // sinon : repérés par la vérification des pièces jointes
+    delete ENVOIS[bouton.form.dataset.id];
+    toast("Fichiers non envoyés : ajoutez-les plus tard depuis l'historique de l'équipement.");
+    if (eqId) return App.fiche(eqId);
+    fermer(); await recharger();
+  },
+  ajouterDoc(controleId, eqId){
+    ouvrir(tete('Ajouter un document') + `
+      <form data-id="${nouvelId()}" onsubmit="App.enregistrerDocs(event,'${controleId}','${eqId}')">
+        <label>Compte rendu ou photos<input type="file" name="fichiers" multiple required accept="image/*,application/pdf">
+          <span class="aide">PDF reçu de la société, ou photos du rapport papier.</span></label>
+        <ul class="etat-envoi" hidden></ul>
+        <div class="boutons"><button class="principal" type="submit">Ajouter le document</button></div>
+        <button type="button" class="secondaire" data-abandon hidden onclick="App.abandonnerEnvoi(this,'${eqId}')">Abandonner les fichiers restants</button>
+        <button type="button" class="lien" onclick="App.fiche('${eqId}')">Retour à l'équipement</button>
+      </form>`);
+  },
+  async enregistrerDocs(ev, controleId, eqId){
+    ev.preventDefault();
+    const form = ev.target, cle = form.dataset.id;
+    const b = form.querySelector('button[type=submit]'), zone = form.querySelector('.etat-envoi'), abandon = form.querySelector('[data-abandon]');
+    const e = ENVOIS[cle] ??= { lot:cle.slice(0, 8), entrees:preparer(form.fichiers.files) };
+    form.fichiers.disabled = true; b.disabled = true; abandon.hidden = true;
+    try {
+      if (!(await verifierControle(controleId))) throw new Error("Ce contrôle n'existe plus dans la base. Aucun document n'a été envoyé.");
+    } catch (err){
+      toast(traduire(err), true); b.disabled = false; b.textContent = 'Réessayer'; return;
+    }
+    const restants = await envoyerFichiers(controleId, e.lot, e.entrees, b, zone);
+    if (restants){
+      b.disabled = false;
+      b.textContent = `Reprendre l'envoi (${restants} fichier${restants > 1 ? 's' : ''})`;
+      abandon.hidden = false;
+      toast("Certains fichiers n'ont pas été envoyés.", true);
+      return;
+    }
+    delete ENVOIS[cle];
+    toast(e.entrees.length > 1 ? 'Documents ajoutés' : 'Document ajouté');
+    App.fiche(eqId);
+  },
+  async supprimerControle(id, eqId){
+    if (!confirm('Supprimer définitivement ce contrôle et ses pièces jointes ?')) return;
+    try {
+      const docs = await q(sb.from('documents').select('chemin').eq('controle_id', id));
+      if (docs.length) await q(sb.storage.from('rapports').remove(docs.map(d => d.chemin)));
+      await q(sb.from('controles').delete().eq('id', id));
+      toast('Contrôle supprimé');
+      await recharger(); App.fiche(eqId);
+    } catch {}
+  },
+  leverReserve(id){
+    ouvrir(tete('Lever la réserve') + `
+      <form onsubmit="App.enregistrerLevee(event,'${id}')">
+        <label>Date de levée<input type="date" name="date_levee" required value="${aujourdhui()}" max="${aujourdhui()}"></label>
+        <button class="principal" type="submit">Lever la réserve</button>
+      </form>`);
+  },
+  async enregistrerLevee(ev, id){
+    ev.preventDefault();
+    try {
+      await q(sb.from('controles').update({ reserve_levee:true, date_levee:new FormData(ev.target).get('date_levee') }).eq('id', id));
+      fermer(); toast('Réserve levée'); await recharger();
+    } catch {}
+  },
+
+  /* Administration */
+  async ajouterSite(ev){
+    ev.preventDefault();
+    const nom = new FormData(ev.target).get('nom').trim();
+    try { await q(sb.from('sites').insert({ nom, ordre:S.sites.length + 1 })); toast('Site ajouté'); await recharger(); } catch {}
+  },
+  async renommerSite(id){
+    const s = S.sites.find(x => x.id === id);
+    const nom = prompt('Nouveau nom du site :', s?.nom || '');
+    if (!nom || !nom.trim()) return;
+    try { await q(sb.from('sites').update({ nom:nom.trim() }).eq('id', id)); toast('Site renommé'); await recharger(); } catch {}
+  },
+  async supprimerSite(id){
+    const n = S.equipements.filter(e => e.site_id === id).length;
+    if (!confirm(n ? `Ce site contient ${n} équipement(s). Tout sera supprimé avec leur historique. Continuer ?` : 'Supprimer ce site ?')) return;
+    try { await q(sb.from('sites').delete().eq('id', id)); toast('Site supprimé'); await recharger(); } catch {}
+  },
+  armerPanne(k){
+    if (k === 'upload') PANNES.upload = 1;
+    if (k === 'document') PANNES.document = 1;
+    if (k === 'fichier') PANNES.fichier = 1;
+    if (k === 'aucune') Object.assign(PANNES, { upload:0, document:0, fichier:-1 });
+    toast(k === 'aucune' ? 'Pannes désarmées' : 'Panne armée pour le prochain envoi');
+  },
+
+  /* Vérification croisée table « documents » / stockage « rapports » (lecture seule) */
+  async auditDocs(){
+    ouvrir(tete('Vérification des pièces jointes') + '<p class="chargement">Analyse en cours…</p>');
+    try {
+      const docs = [];
+      for (let de = 0; ; de += 1000){
+        const { data, error } = await sb.from('documents')
+          .select('id, controle_id, chemin, nom, controles(date_realisation, plans(libelle, equipements(nom)))')
+          .order('created_at').range(de, de + 999);
+        if (error) throw error;
+        docs.push(...data); if (data.length < 1000) break;
+      }
+      const liste = async prefixe => {
+        const out = [];
+        for (let de = 0; ; de += 1000){
+          const { data, error } = await sb.storage.from('rapports').list(prefixe, { limit:1000, offset:de });
+          if (error) throw error;
+          out.push(...data); if (data.length < 1000) break;
+        }
+        return out;
+      };
+      const objets = new Map();
+      for (const d of await liste('')){
+        if (d.id) { objets.set(d.name, d); continue; }          // fichier à la racine (inattendu)
+        for (const f of await liste(d.name)) if (f.id && f.name !== '.emptyFolderPlaceholder') objets.set(`${d.name}/${f.name}`, f);
+      }
+      const parChemin = {};
+      docs.forEach(d => (parChemin[d.chemin] ??= []).push(d));
+      const doublons = Object.values(parChemin).filter(l => l.length > 1);
+      const memeNom = {};
+      docs.forEach(d => (memeNom[`${d.controle_id}|${d.nom}`] ??= []).push(d));
+      const possibles = Object.values(memeNom).filter(l => l.length > 1 && new Set(l.map(x => x.chemin)).size > 1);
+      const introuvables = docs.filter(d => !objets.has(d.chemin));
+      const heure = Date.now() - 3600e3;
+      const isoles = [...objets.entries()].filter(([c]) => !parChemin[c]).map(([c, o]) => ({ chemin:c, recent: o.created_at && new Date(o.created_at).getTime() > heure }));
+      S.audit = { introuvables, isoles };
+
+      const ctx = d => esc(`${d.controles?.plans?.equipements?.nom || '?'}, ${d.controles?.plans?.libelle || '?'}, ${d.controles?.date_realisation ? fmt(d.controles.date_realisation) : '?'}`);
+      const ligne = (titre, n, okTxt, corps) => `<div class="bloc"><div class="histo-tete"><b>${titre}</b><span class="res" style="color:var(${n ? '--retard' : '--ok'})">${n ? n : '✓ ' + okTxt}</span></div>${n ? corps : ''}</div>`;
+      let h = `<p class="sous" style="margin:-4px 0 12px">${docs.length} document(s) enregistrés, ${objets.size} fichier(s) stockés.</p>`;
+      h += ligne('Documents en double (même fichier)', doublons.length, 'aucun',
+        `<ul>${doublons.map(l => `<li>${esc(l[0].nom)} : ${l.length} fois (${ctx(l[0])})</li>`).join('')}</ul>`);
+      h += ligne('Même nom sur un même contrôle', possibles.length, 'aucun',
+        `<p class="aide">Peut être volontaire (deux photos nommées pareil) : à vérifier dans l'historique.</p><ul>${possibles.map(l => `<li>${esc(l[0].nom)} : ${l.length} fois (${ctx(l[0])})</li>`).join('')}</ul>`);
+      h += ligne('Documents dont le fichier est introuvable', introuvables.length, 'aucun',
+        `<ul>${introuvables.map(d => `<li>${esc(d.nom)} (${ctx(d)})</li>`).join('')}</ul>
+         ${estAdmin() ? `<button class="petit danger" onclick="App.nettoyerAudit('introuvables')">Retirer ces références</button>` : ''}`);
+      h += ligne('Fichiers stockés non rattachés', isoles.length, 'aucun',
+        `<p class="aide">Fichiers invisibles dans l'application (envoi interrompu). Ceux de moins d'une heure peuvent être un envoi en cours.</p>
+         <ul>${isoles.map(o => `<li>${esc(o.chemin.split('/').pop())}${o.recent ? ' (récent)' : ''}</li>`).join('')}</ul>
+         ${estAdmin() ? `<button class="petit danger" onclick="App.nettoyerAudit('isoles')">Supprimer ceux de plus d'une heure</button>` : ''}`);
+      $('#modalContenu').innerHTML = tete('Vérification des pièces jointes') + h;
+    } catch (err){
+      $('#modalContenu').innerHTML = tete('Vérification des pièces jointes') + `<p class="vide">Vérification impossible : ${esc(traduire(err))}</p>`;
+    }
+  },
+  async nettoyerAudit(type){
+    const a = S.audit; if (!a) return;
+    try {
+      if (type === 'introuvables'){
+        if (!confirm(`Retirer ${a.introuvables.length} référence(s) vers des fichiers introuvables ?`)) return;
+        await q(sb.from('documents').delete().in('id', a.introuvables.map(d => d.id)));
+      } else {
+        const cibles = a.isoles.filter(o => !o.recent).map(o => o.chemin);
+        if (!cibles.length) return toast('Aucun fichier de plus d’une heure à supprimer.');
+        if (!confirm(`Supprimer définitivement ${cibles.length} fichier(s) non rattaché(s) ?`)) return;
+        await q(sb.storage.from('rapports').remove(cibles));
+      }
+      toast('Nettoyage effectué');
+      App.auditDocs();
+    } catch {}
+  },
+  async role(id, role){
+    try { await q(sb.from('profils').update({ role }).eq('id', id)); toast('Rôle modifié'); } catch { rendre(); }
+  },
+
+  /* Exports */
+  exportICS(){
+    const ics = s => String(s ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+    const L = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Commune de Pasly//Controles periodiques//FR','CALSCALE:GREGORIAN','METHOD:PUBLISH','X-WR-CALNAME:Contrôles Pasly'];
+    let n = 0;
+    for (const e of S.echeances){
+      if (!e.prochaine || ecart(e.prochaine) < 0) continue;
+      const debut = e.prochaine.replace(/-/g, '');
+      const lendemain = dateObj(e.prochaine); lendemain.setDate(lendemain.getDate() + 1);
+      L.push('BEGIN:VEVENT', `UID:${e.plan_id}-${debut}@controles-pasly`, `DTSTAMP:${stamp}`,
+        `DTSTART;VALUE=DATE:${debut}`, `DTEND;VALUE=DATE:${isoLocal(lendemain).replace(/-/g, '')}`,
+        `SUMMARY:${ics('Contrôle : ' + e.libelle + ' (' + e.equipement + ')')}`,
+        `LOCATION:${ics(e.site)}`,
+        `DESCRIPTION:${ics(perio(e.periodicite_valeur, e.periodicite_unite) + (e.prestataire ? '\nPrestataire : ' + e.prestataire : '') + (e.contact ? '\nContact : ' + e.contact : ''))}`,
+        'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${ics('Contrôle à prévoir : ' + e.libelle)}`, `TRIGGER:-P${e.rappel_jours ?? 30}D`, 'END:VALARM',
+        'END:VEVENT');
+      n++;
+    }
+    L.push('END:VCALENDAR');
+    if (!n) return toast("Aucune échéance à venir à exporter.", true);
+    telecharger('controles-pasly.ics', L.join('\r\n'), 'text/calendar;charset=utf-8');
+  },
+  exportCSV(selection = false){
+    const c = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lignes = [['Site','Équipement','Contrôle','Périodicité','Dernier contrôle','Dernier résultat','Prochaine échéance','Statut','Prestataire','Contact','Réserves non levées']];
+    for (const e of (selection ? selectionAffichee() : S.echeances)) lignes.push([e.site, e.equipement, e.libelle, perio(e.periodicite_valeur, e.periodicite_unite),
+      e.dernier_controle ? fmt(e.dernier_controle) : '', RESULTATS[e.dernier_resultat] || '', e.prochaine ? fmt(e.prochaine) : 'à planifier',
+      TITRES[statut(e)], e.prestataire, e.contact, e.reserves_ouvertes]);
+    telecharger(`${selection ? 'selection' : 'echeances'}-controles-pasly-${aujourdhui()}.csv`, '\ufeff' + lignes.map(l => l.map(c).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+  },
+};
+window.App = App;
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#modal').hidden) App.fermer(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && S.profil && $('#modal').hidden) recharger(); });
+demarrer();
+</script>
+</body>
+</html>
