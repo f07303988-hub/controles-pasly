@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="Contrôles">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <!-- F1 : seules ces origines sont autorisées (Supabase du projet, bibliothèque Supabase sur jsDelivr) -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https://*.supabase.co https://cdn.jsdelivr.net https://tile.openstreetmap.org https://data.geopf.fr; connect-src 'self' https://*.supabase.co wss://*.supabase.co; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <!-- I4 : version figée de la bibliothèque. Si elle ne se charge pas, repli sur la dernière version 2 (signalé aux administrateurs). -->
 <script>window.SUPABASE_JS_VERSION = '2.45.4';</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" crossorigin="anonymous"
@@ -374,6 +374,16 @@ fieldset.montant legend{padding:0 4px}
 #toast.visible{opacity:1;transform:translate(-50%,0)}
 #toast.erreur{background:var(--retard)}
 @media (prefers-color-scheme: dark){#toast{background:#2B3A55}}
+/* Module DECI : points d'eau incendie */
+.carte-deci{position:relative;z-index:0;height:340px;border:1px solid var(--ligne);border-radius:var(--rayon);overflow:hidden;margin:4px 0 8px;background:var(--papier)}
+@media (min-width:900px){.carte-deci{height:440px}}
+.carte-deci .chargement{padding:16px;margin:0}
+.carte-deci .leaflet-container{font:inherit}
+.bulle-pei{font-weight:700;font-size:.75rem;padding:1px 5px}
+.champ-reseau[hidden],.champ-reserve[hidden]{display:none}
+a.bouton-lien{display:inline-flex;align-items:center;text-decoration:none}
+.mesures-pei{border:1px solid var(--ligne);border-radius:8px;padding:10px 12px}
+.mesures-pei details label.case{margin-top:8px}
 </style>
 </head>
 <body class="deconnecte">
@@ -464,6 +474,7 @@ const MODELES = [
   { cat:'Électricité',          libelle:'Vérification des installations électriques',         v:1, u:'an' },
   { cat:'Gaz',                  libelle:'Vérification des installations de gaz',              v:1, u:'an' },
   { cat:'Portes et portails',   libelle:'Entretien des portes et portails automatiques',      v:6, u:'mois' },
+  { cat:"Point d'eau incendie", libelle:'Contrôle technique périodique (débit et pression)',  v:3, u:'an' },
 ];
 const CATEGORIES = [...new Set(MODELES.map(m => m.cat))];
 const RESULTATS = { conforme:'Conforme', reserves:'Avec réserves', non_conforme:'Non conforme' };
@@ -761,6 +772,7 @@ async function apresConnexion(){
     if (session && snap && snap.profil?.id === session.user.id){
       S.profil = { ...snap.profil, email:session.user.email };
       Object.assign(S, { sites:snap.sites, equipements:snap.equipements, echeances:snap.echeances, majOk:new Date(snap.date), erreurMaj:null });
+      if (snap.deci) Object.assign(S.deci, snap.deci, { erreur:null });
       document.body.classList.remove('deconnecte');
       await rendre(); await majFile(); ouvrirLienEquipement();
       return;
@@ -816,7 +828,7 @@ async function recharger(){
   }
   const n = S.echeances.filter(e => statut(e) === 'retard').length;
   const nb = $('#nbRetard'); nb.hidden = !n; nb.textContent = n;
-  if (!S.erreurMaj){ await chargerIncidents(); await chargerInterventions(); await chargerBudget(); await chargerERP(); await chargerEcheancesDocs(); }   // modules indépendants : leur échec n'affecte pas les autres onglets
+  if (!S.erreurMaj){ await chargerIncidents(); await chargerInterventions(); await chargerBudget(); await chargerERP(); await chargerEcheancesDocs(); try { await chargerDECI(); } catch {} }   // modules indépendants : leur échec n'affecte pas les autres onglets
   await rendre();
   return !S.erreurMaj;
 }
@@ -1400,7 +1412,7 @@ async function majFile(){
 async function rejouer(item){
   const D = item.donnees, fichiers = (item.fichiers || []).map((f, i) => ({ f:new File([f.blob], f.nom, { type:f.type }), i, etat:'attente', chemin:null, fic:null, message:'' }));
   if (item.type === 'controle'){
-    const { error } = await sb.from('controles').insert({ id:item.id, plan_id:D.planId, date_realisation:D.date, intervenant:D.intervenant, resultat:D.resultat, observations:D.observations });
+    const { error } = await sb.from('controles').insert({ id:item.id, plan_id:D.planId, date_realisation:D.date, intervenant:D.intervenant, resultat:D.resultat, observations:D.observations, ...(D.mesures ? { mesures:D.mesures } : {}) });
     if (error && !(await verifierControle(item.id, D.planId))) throw error;
     if (fichiers.length && await envoyerFichiers(item.id, item.lot, fichiers, null, null)) throw new Error(fichiers.find(x => x.etat === 'erreur')?.message || "Photos non envoyées");
   } else if (item.type === 'incident'){
@@ -1415,7 +1427,8 @@ async function rejouer(item){
 async function enregistrerInstantane(){
   if (!S.profil) return;
   try { await IDB.mettre('instantane', { date:Date.now(), profil:{ id:S.profil.id, nom:S.profil.nom, role:S.profil.role },
-    sites:S.sites, equipements:S.equipements, echeances:S.echeances.map(({ contact, ...r }) => r) }, 'donnees'); } catch {}
+    sites:S.sites, equipements:S.equipements, echeances:S.echeances.map(({ contact, ...r }) => r),
+    deci:{ pei:S.deci.pei, mesures:S.deci.mesures, params:S.deci.params, absent:S.deci.absent } }, 'donnees'); } catch {}
 }
 function ficheHorsLigne(e){
   const site = S.sites.find(x => x.id === e.site_id), ech = S.echeances.filter(x => x.equipement_id === e.id);
@@ -1476,7 +1489,7 @@ async function rendre(){
   v.classList.toggle('large', S.vue === 'accueil');
   if (S.vue === 'accueil'){ if (!S.tdbReserves) v.innerHTML = '<p class="chargement">Chargement du tableau de bord…</p>'; await chargerReservesTdb(); v.innerHTML = vueAccueil(); }
   if (S.vue === 'echeances'){ if (S.cal?.vue === 'calendrier') v.innerHTML = vueCalendrier(); else { v.innerHTML = vueEcheances(); majEcheances(); } }
-  if (S.vue === 'equipements') v.innerHTML = vueEquipements();
+  if (S.vue === 'equipements'){ if (S.eqVue === 'deci'){ v.innerHTML = vueDeci(); initCarteDeci(); } else v.innerHTML = vueEquipements(); }
   if (S.vue === 'reserves')  { v.innerHTML = '<p class="chargement">Chargement…</p>'; v.innerHTML = await vueReserves(); }
   if (S.vue === 'plus')      { v.innerHTML = '<p class="chargement">Chargement…</p>'; v.innerHTML = await vuePlus(); }
   if (S.vue === 'incidents'){
@@ -1842,6 +1855,12 @@ function vueAccueil(){
     <label>Horizon<select onchange="App.tdbFiltre('horizon', this.value)">${[7, 30, 90].map(n => opt(n, `${n} prochains jours`, F.horizon)).join('')}</select></label>
   </div>
   <div class="tdb"><div>`;
+  // Points d'eau incendie indisponibles
+  if (deciPret() && !F.site){
+    const indispo = listePei().filter(x => x.p.disponibilite === 'indisponible');
+    if (indispo.length) h += `<div class="bloc" style="border-color:var(--retard)"><p class="alerte">${indispo.length} point${indispo.length > 1 ? 's' : ''} d'eau incendie indisponible${indispo.length > 1 ? 's' : ''}${indispo.some(x => !x.p.signale_sdis) ? ', dont ' + indispo.filter(x => !x.p.signale_sdis).length + ' non signalé' + (indispo.filter(x => !x.p.signale_sdis).length > 1 ? 's' : '') + ' au SDIS' : ''}</p>
+      <div class="actions">${indispo.map(x => `<button class="petit secondaire" onclick="App.fiche('${x.e.id}')">${esc(nomPei(x))}</button>`).join('')}<button class="petit secondaire" onclick="App.vueEq('deci');App.aller('equipements')">Voir la carte</button></div></div>`;
+  }
   // Contrôles
   h += `<h2 style="margin-top:0">Contrôles périodiques</h2><div class="ind-grille">
     ${ind(D.retardRegl.length, 'Contrôles réglementaires en retard', 's-retard', "App.tdbOuvrir('retard')", D.retardAutres.length ? `+ ${D.retardAutres.length} non réglementaire${D.retardAutres.length > 1 ? 's' : ''}` : '')}
@@ -2552,7 +2571,7 @@ function etiquetteEquipement(id){
   return `<span class="etiquette s-${st}">${st === 'aucun' ? 'Aucun contrôle' : TITRES[st]}</span>`;
 }
 function vueEquipements(){
-  let h = ligneMaj() + `<div class="entete-vue"><h1>Équipements</h1><span style="display:flex;gap:6px">${peutSaisir() && S.equipements.length ? `<button class="secondaire petit" onclick="App.formEtiquettes()">Étiquettes QR</button>` : ''}${estAdmin() && S.sites.length ? `<button class="principal petit" onclick="App.formEquipement()">Ajouter</button>` : ''}</span></div>`;
+  let h = ligneMaj() + (deciPret() || estAdmin() ? ongletsEquipements() : '') + `<div class="entete-vue"><h1>Équipements</h1><span style="display:flex;gap:6px">${peutSaisir() && S.equipements.length ? `<button class="secondaire petit" onclick="App.formEtiquettes()">Étiquettes QR</button>` : ''}${estAdmin() && S.sites.length ? `<button class="principal petit" onclick="App.formEquipement()">Ajouter</button>` : ''}</span></div>`;
   if (!S.sites.length) return h + `<p class="vide">Aucun site enregistré.${estAdmin() ? ' Créez un site dans l’onglet Compte.' : ''}</p>`;
   const archive = e => !e.actif || !siteActif(S.sites.find(x => x.id === e.site_id));
   const nbArch = S.equipements.filter(archive).length;
@@ -2682,6 +2701,441 @@ async function vuePlus(){
 /* ==================================================================
    Actions
    ================================================================== */
+/* ==================================================================
+   Module DECI : points d'eau incendie (PEI)
+   Un PEI est un équipement de la catégorie « Point d'eau incendie »,
+   complété par une fiche equipement_pei (numéro, type, position, disponibilité).
+   Les mesures de chaque contrôle sont dans controles.mesures.
+   ================================================================== */
+const CAT_PEI = "Point d'eau incendie";
+const TYPES_PEI = { poteau:'Poteau incendie (PI)', bouche:'Bouche incendie (BI)', reserve_aerienne:'Réserve aérienne', reserve_enterree:'Réserve enterrée',
+  citerne_souple:'Citerne souple', point_aspiration:"Point d'aspiration (cours d'eau, mare)", autre:'Autre' };
+const COURT_PEI = { poteau:'PI', bouche:'BI', reserve_aerienne:'Réserve', reserve_enterree:'Réserve', citerne_souple:'Citerne', point_aspiration:'Aspiration', autre:'PEI' };
+const DISPO_PEI = { disponible:'Disponible', restreint:'Disponible avec restriction', indisponible:'Indisponible' };
+const CLS_DISPO = { disponible:'s-ok', restreint:'s-bientot', indisponible:'s-retard' };
+const ANOMALIES_PEI = { acces:'Accès gêné ou impraticable', signalisation:'Signalisation absente ou abîmée', numerotation:'Numéro absent ou illisible',
+  manoeuvre:'Manœuvre difficile', fuite:'Fuite ou vidange défaillante', bouchons:'Bouchons ou capot manquants', peinture:'Peinture à refaire',
+  aspiration:"Dispositif d'aspiration défaillant", niveau:'Niveau ou volume insuffisant' };
+const estReservePei = t => ['reserve_aerienne','reserve_enterree','citerne_souple','point_aspiration'].includes(t);
+const PASLY = [49.4045, 3.2967];
+const IGN_ORTHO = 'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}';
+S.deci = { pei:{}, mesures:{}, absent:false, erreur:null, params:{ periodicite_ans:3 } };
+S.eqVue = 'batiments'; S.deciRayon = 0; S.deciFiltre = ''; S.deciFond = 'Plan';
+
+const deciPret = () => !S.deci.absent && !S.deci.erreur;
+const ficheP = id => S.deci.pei[id] || null;
+const estCatPei = e => norm(e?.categorie).trim() === norm(CAT_PEI);
+const estPei = id => !!ficheP(id) || estCatPei(S.equipements.find(x => x.id === id));
+const nombre = (v, libelle, max = 100000) => {
+  const t = String(v ?? '').trim().replace(',', '.');
+  if (!t) return null;
+  const n = Number(t);
+  if (!Number.isFinite(n) || n < 0 || n > max) throw new Error(`${libelle} : valeur invalide.`);
+  return n;
+};
+const fmtNb = (v, u) => v == null ? '—' : `${Number(v).toLocaleString('fr-FR')} ${u}`;
+
+async function chargerDECI(){
+  const [p, prm] = await Promise.all([
+    sb.from('equipement_pei').select('*'),
+    sb.from('parametres').select('valeur').eq('cle', 'deci').maybeSingle(),
+  ]);
+  if (p.error){ S.deci.absent = tableAbsente(p.error); S.deci.erreur = S.deci.absent ? null : traduire(p.error); return; }
+  S.deci.absent = false; S.deci.erreur = null;
+  S.deci.pei = Object.fromEntries((p.data || []).map(x => [x.equipement_id, x]));
+  if (!prm.error && prm.data?.valeur) S.deci.params = { ...S.deci.params, ...prm.data.valeur };
+  // Dernières mesures relevées par point d'eau
+  const plans = Object.fromEntries(S.echeances.filter(e => S.deci.pei[e.equipement_id]).map(e => [e.plan_id, e.equipement_id]));
+  const ids = Object.keys(plans);
+  S.deci.mesures = {};
+  if (ids.length){
+    const r = await sb.from('controles').select('plan_id, date_realisation, resultat, mesures').in('plan_id', ids)
+      .not('mesures', 'is', null).order('date_realisation', { ascending:false }).limit(1000);
+    if (!r.error) for (const c of r.data) S.deci.mesures[plans[c.plan_id]] ??= c;
+  }
+}
+
+/* Liste des points d'eau en service, triés par numéro */
+function listePei(){
+  const archive = e => !e.actif || !siteActif(S.sites.find(x => x.id === e.site_id));
+  return S.equipements.filter(e => (ficheP(e.id) || estCatPei(e)) && !archive(e))
+    .map(e => ({ e, p:ficheP(e.id) || {}, st:pireStatut(e.id), m:S.deci.mesures[e.id] || null }))
+    .sort((a, b) => String(a.p.numero || a.e.nom).localeCompare(String(b.p.numero || b.e.nom), 'fr', { numeric:true }));
+}
+const nomPei = x => `${x.p.numero ? `N° ${x.p.numero}` : x.e.nom}`;
+function resumeMesures(m, p = {}){
+  if (!m) return '';
+  const l = [];
+  if (m.pression_statique_bar != null) l.push(`pression statique ${fmtNb(m.pression_statique_bar, 'bar')}`);
+  if (m.debit_max_m3h != null) l.push(`débit max ${fmtNb(m.debit_max_m3h, 'm³/h')}`);
+  if (m.debit_1bar_m3h != null) l.push(`débit à 1 bar ${fmtNb(m.debit_1bar_m3h, 'm³/h')}`);
+  if (m.volume_m3 != null) l.push(`volume ${fmtNb(m.volume_m3, 'm³')}`);
+  if (m.anomalies?.length) l.push(`anomalies : ${m.anomalies.map(a => (ANOMALIES_PEI[a] || a).toLowerCase()).join(', ')}`);
+  return l.join(' · ');
+}
+/* Débit ou volume insuffisant par rapport au besoin inscrit sur la fiche */
+function insuffisant(m, p){
+  if (!m || !p) return false;
+  if (p.debit_requis_m3h != null){ const d = m.debit_1bar_m3h ?? m.debit_max_m3h; if (d != null && d < p.debit_requis_m3h) return true; }
+  if (p.capacite_m3 != null && m.volume_m3 != null && m.volume_m3 < p.capacite_m3) return true;
+  return false;
+}
+
+/* ---------- Vue Points d'eau ---------- */
+function ongletsEquipements(){
+  const b = (k, l) => `<button class="${S.eqVue === k ? 'actif' : ''}" aria-pressed="${S.eqVue === k}" onclick="App.vueEq('${k}')">${l}</button>`;
+  return `<div class="segments" role="group" aria-label="Type d'équipements">${b('batiments', 'Bâtiments')}${b('deci', "Points d'eau incendie")}</div>`;
+}
+function vueDeci(){
+  let h = ligneMaj() + ongletsEquipements();
+  if (S.deci.absent) return h + `<h1>Points d'eau incendie</h1><p class="vide">Le module n'est pas encore installé dans la base.${estAdmin() ? ' Exécutez <b>migration-deci.sql</b> dans Supabase (SQL Editor), puis actualisez.' : " Prévenez l'administrateur."}</p>`;
+  if (S.deci.erreur) return h + `<h1>Points d'eau incendie</h1><p class="maj erreur">Données indisponibles : ${esc(S.deci.erreur)}</p>`;
+  const tous = listePei();
+  const n = k => tous.filter(x => (x.p.disponibilite || 'disponible') === k).length;
+  const retard = tous.filter(x => x.st === 'retard');
+  const nonSignales = tous.filter(x => x.p.disponibilite === 'indisponible' && !x.p.signale_sdis);
+  h += `<div class="entete-vue"><h1>Points d'eau</h1><span style="display:flex;gap:6px">
+    ${tous.length ? `<button class="secondaire petit" onclick="App.menuExportDeci()">Exporter</button>` : ''}
+    ${estAdmin() ? `<button class="principal petit" onclick="App.formPei()">Ajouter</button>` : ''}</span></div>`;
+  if (!tous.length) return h + `<p class="vide">Aucun point d'eau enregistré.${estAdmin() ? ' Ajoutez les poteaux, bouches et réserves de la commune avec le bouton « Ajouter ». Sur place, le bouton « Ma position » relève les coordonnées GPS.' : ''}</p>`;
+  if (nonSignales.length) h += `<div class="bloc" style="border-color:var(--retard)"><p class="alerte">${nonSignales.length} point${nonSignales.length > 1 ? 's' : ''} d'eau indisponible${nonSignales.length > 1 ? 's' : ''} non signalé${nonSignales.length > 1 ? 's' : ''} au SDIS</p>
+    <p class="aide" style="margin:4px 0 0">L'indisponibilité se signale sans délai au 18, puis se confirme par courriel au SDIS.</p>
+    <div class="actions">${nonSignales.map(x => `<button class="petit secondaire" onclick="App.fiche('${x.e.id}')">${esc(nomPei(x))}</button>`).join('')}</div></div>`;
+  const F = S.deciFiltre, ch = (k, l, nb) => `<button class="${F === k ? 'actif' : ''}" onclick="App.filtreDeci('${k}')">${l}${nb != null ? ` (${nb})` : ''}</button>`;
+  h += `<div class="chips" role="group" aria-label="Filtrer">${ch('', 'Tous', tous.length)}${ch('disponible', 'Disponibles', n('disponible'))}${ch('restreint', 'Avec restriction', n('restreint'))}${ch('indisponible', 'Indisponibles', n('indisponible'))}${ch('retard', 'Contrôle en retard', retard.length)}</div>`;
+  const liste = tous.filter(x => !F || (F === 'retard' ? x.st === 'retard' : (x.p.disponibilite || 'disponible') === F));
+  const sansGps = liste.filter(x => x.p.latitude == null).length;
+  const r = (v, l) => `<button class="${S.deciRayon === v ? 'actif' : ''}" onclick="App.rayonDeci(${v})">${l}</button>`;
+  h += `<div id="carteDeci" class="carte-deci" role="region" aria-label="Carte des points d'eau"><p class="chargement">Chargement de la carte…</p></div>
+    <div class="chips" role="group" aria-label="Rayon de couverture">${r(0, 'Sans rayon')}${r(200, 'Rayon 200 m')}${r(400, 'Rayon 400 m')}</div>
+    <p class="aide" style="margin:-4px 0 10px">Les rayons sont tracés à vol d'oiseau : la distance réglementaire se mesure par les voies praticables par les engins. Ils servent à repérer les zones mal défendues, pas à conclure.${sansGps ? ` ${sansGps} point${sansGps > 1 ? 's' : ''} sans coordonnées GPS n'apparai${sansGps > 1 ? 'ssent' : 't'} pas sur la carte.` : ''}</p>`;
+  if (!liste.length) return h + `<p class="vide">Aucun point d'eau pour ce filtre.</p>`;
+  h += `<ul class="lignes">${liste.map(x => {
+    const dispo = x.p.disponibilite || 'disponible', m = x.m?.mesures, ins = insuffisant(m, x.p);
+    const det = [TYPES_PEI[x.p.type_pei] || x.e.categorie, x.p.adresse || x.e.localisation].filter(Boolean).join(' · ');
+    return `<li tabindex="0" role="button" onclick="App.fiche('${x.e.id}')">
+      <span class="pastille ${CLS_DISPO[dispo]}" aria-hidden="true"></span>
+      <div><b>${esc(nomPei(x))}</b><small>${esc(det) || '&nbsp;'}</small>
+        ${m ? `<small>${esc(resumeMesures({ ...m, anomalies:[] }))}${x.m.date_realisation ? `, le ${fmt(x.m.date_realisation)}` : ''}</small>` : ''}
+        ${ins ? `<small class="alerte">En dessous du besoin inscrit sur la fiche</small>` : ''}</div>
+      <span style="display:grid;gap:4px;justify-items:end"><span class="etiquette ${CLS_DISPO[dispo]}">${dispo === 'restreint' ? 'Restriction' : DISPO_PEI[dispo]}</span>${etiquetteEquipement(x.e.id)}</span></li>`;
+  }).join('')}</ul>`;
+  return h;
+}
+
+/* ---------- Carte (Leaflet, chargé à la demande) ---------- */
+let leafletP = null;
+function chargerLeaflet(){
+  if (window.L?.map) return Promise.resolve();
+  return leafletP ??= new Promise((res, rej) => {
+    const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(l);
+    const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js'; s.crossOrigin = 'anonymous';
+    s.onload = () => res(); s.onerror = () => { leafletP = null; l.remove(); s.remove(); rej(new Error('Carte indisponible')); };
+    document.head.appendChild(s);
+  });
+}
+const couleur = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim() || '#888';
+async function initCarteDeci(){
+  const zone = $('#carteDeci'); if (!zone) return;
+  try { await chargerLeaflet(); }
+  catch { if (document.contains(zone)) zone.innerHTML = `<p class="vide" style="margin:0">Carte indisponible (pas de réseau). La liste reste utilisable.</p>`; return; }
+  if (!document.contains(zone)) return;
+  if (S.carte){ try { S.carte.remove(); } catch {} S.carte = null; }
+  zone.innerHTML = '';
+  const fonds = {
+    'Plan':L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'© contributeurs OpenStreetMap' }),
+    'Photo aérienne':L.tileLayer(IGN_ORTHO, { maxZoom:19, attribution:'© IGN' }),
+  };
+  const m = L.map(zone, { layers:[fonds[S.deciFond] || fonds.Plan], tap:true });
+  m.on('baselayerchange', e => { S.deciFond = e.name; });
+  L.control.layers(fonds, null, { position:'topright' }).addTo(m);
+  const C = { disponible:couleur('--ok'), restreint:couleur('--bientot'), indisponible:couleur('--retard') };
+  const F = S.deciFiltre;
+  const pts = listePei().filter(x => x.p.latitude != null && (!F || (F === 'retard' ? x.st === 'retard' : (x.p.disponibilite || 'disponible') === F)));
+  for (const x of pts){
+    const ll = [x.p.latitude, x.p.longitude], c = C[x.p.disponibilite || 'disponible'];
+    if (S.deciRayon) L.circle(ll, { radius:S.deciRayon, color:c, weight:1, fillColor:c, fillOpacity:.10, interactive:false }).addTo(m);
+    L.circleMarker(ll, { radius:10, color:'#fff', weight:2, fillColor:c, fillOpacity:1 }).addTo(m)
+      .bindTooltip(`${esc(x.p.numero || x.e.nom)}${x.p.type_pei ? ` · ${esc(COURT_PEI[x.p.type_pei])}` : ''}`, { permanent:pts.length <= 40, direction:'top', offset:[0, -10], className:'bulle-pei' })
+      .on('click', () => App.fiche(x.e.id));
+  }
+  const focus = S.deciFocus && pts.find(x => x.e.id === S.deciFocus);
+  if (focus) m.setView([focus.p.latitude, focus.p.longitude], 18);
+  else if (pts.length > 1) m.fitBounds(L.latLngBounds(pts.map(x => [x.p.latitude, x.p.longitude])).pad(.15), { maxZoom:17 });
+  else if (pts.length) m.setView([pts[0].p.latitude, pts[0].p.longitude], 17);
+  else m.setView(PASLY, 15);
+  S.deciFocus = null;
+  S.carte = m;
+}
+
+/* ---------- Fiche d'un point d'eau (insérée dans la fiche équipement) ---------- */
+function blocPei(e){
+  if (!deciPret() || !estPei(e.id)) return '';
+  const p = ficheP(e.id);
+  if (!p) return `<div class="bloc"><b>Point d'eau incendie</b><p class="aide" style="margin:4px 0 0">Caractéristiques DECI non renseignées (numéro, type, position, disponibilité).</p>
+    ${peutSaisir() ? `<div class="actions"><button class="petit" onclick="App.formPei('${e.id}')">Renseigner</button></div>` : ''}</div>`;
+  const dispo = p.disponibilite || 'disponible', m = S.deci.mesures[e.id];
+  const gps = p.latitude != null ? `${p.latitude.toFixed(6)}, ${p.longitude.toFixed(6)}` : null;
+  const infos = [['Numéro', p.numero], ['Type', TYPES_PEI[p.type_pei]], ['Statut', p.statut_juridique === 'prive' ? 'Privé' : 'Public'], ['Adresse', p.adresse],
+    ['Gestionnaire', p.gestionnaire], ['Diamètre', p.diametre_mm ? `${p.diametre_mm} mm` : null],
+    ['Débit requis', p.debit_requis_m3h != null ? fmtNb(p.debit_requis_m3h, 'm³/h') : null], ['Capacité', p.capacite_m3 != null ? fmtNb(p.capacite_m3, 'm³') : null],
+    ['GPS', gps], ['Notes', p.notes]].filter(x => x[1]);
+  let h = `<div class="bloc"><div class="plan-tete"><b>Point d'eau incendie</b><span class="etiquette ${CLS_DISPO[dispo]}">${DISPO_PEI[dispo]}</span></div>`;
+  if (dispo !== 'disponible'){
+    h += `<p class="${dispo === 'indisponible' ? 'alerte' : 'meta'}" style="margin:6px 0">${DISPO_PEI[dispo]}${p.disponibilite_date ? ` depuis le ${fmt(p.disponibilite_date)}` : ''}${p.disponibilite_motif ? ` : ${esc(p.disponibilite_motif)}` : ''}</p>`;
+    h += p.signale_sdis ? `<p class="leve">Signalé au SDIS${p.signale_sdis_date ? ` le ${fmt(p.signale_sdis_date)}` : ''}</p>`
+      : `<p class="alerte">Non signalé au SDIS : appelez le 18, puis confirmez par courriel.</p>`;
+  }
+  h += `<dl class="infos" style="margin-top:8px">${infos.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`;
+  if (m) h += `<p class="meta" style="margin-top:8px">Dernières mesures (${fmt(m.date_realisation)}) : ${esc(resumeMesures(m.mesures, p))}</p>${insuffisant(m.mesures, p) ? `<p class="alerte">En dessous du besoin inscrit sur la fiche.</p>` : ''}`;
+  h += `<div class="actions">
+    ${peutSaisir() ? `<button class="petit" onclick="App.formDispo('${e.id}')">Disponibilité</button>` : ''}
+    ${peutSaisir() && dispo !== 'disponible' && !p.signale_sdis ? `<button class="petit secondaire" onclick="App.courrielSdis('${e.id}')">Courriel au SDIS</button>` : ''}
+    ${gps ? `<button class="petit secondaire" onclick="App.voirSurCarte('${e.id}')">Voir sur la carte</button>
+      <a class="petit secondaire bouton-lien" href="https://www.google.com/maps/dir/?api=1&destination=${p.latitude},${p.longitude}" target="_blank" rel="noopener">Itinéraire</a>` : ''}
+    ${peutSaisir() ? `<button class="petit secondaire" onclick="App.formPei('${e.id}')">Modifier</button>` : ''}</div></div>`;
+  return h;
+}
+
+/* Champs de mesure ajoutés au formulaire de contrôle d'un point d'eau */
+function champsMesuresPei(eqId){
+  if (!deciPret() || !estPei(eqId)) return '';
+  const p = ficheP(eqId) || {}, res = estReservePei(p.type_pei);
+  const anomalies = Object.entries(ANOMALIES_PEI).filter(([k]) => res ? !['fuite','bouchons','manoeuvre'].includes(k) : !['aspiration','niveau'].includes(k));
+  return `<fieldset class="mesures-pei" data-pei="${eqId}"><legend>Mesures du point d'eau</legend>
+    ${res ? `<label>Volume constaté (m³)<input name="volume_m3" inputmode="decimal" placeholder="${p.capacite_m3 ?? '120'}"></label>`
+      : `<div class="deux"><label>Pression statique (bar)<input name="pression_statique_bar" inputmode="decimal" placeholder="ex. 4,5"></label>
+        <label>Débit maximum (m³/h)<input name="debit_max_m3h" inputmode="decimal" placeholder="ex. 90"></label></div>
+        <label>Débit à 1 bar de pression résiduelle (m³/h)<input name="debit_1bar_m3h" inputmode="decimal" placeholder="si mesuré"></label>`}
+    <p class="aide" data-alerte-pei style="margin:0">${p.debit_requis_m3h != null ? `Débit requis sur la fiche : ${fmtNb(p.debit_requis_m3h, 'm³/h')}.` : p.capacite_m3 != null ? `Capacité requise sur la fiche : ${fmtNb(p.capacite_m3, 'm³')}.` : ''}</p>
+    <details><summary class="aide" style="cursor:pointer">Anomalies constatées</summary>
+      ${anomalies.map(([k, l]) => `<label class="case"><input type="checkbox" name="anomalie" value="${k}">${l}</label>`).join('')}</details>
+  </fieldset>`;
+}
+function lireMesures(form){
+  const zone = form.querySelector('.mesures-pei'); if (!zone) return null;
+  const g = n => form.elements[n]?.value;
+  const m = {
+    pression_statique_bar:nombre(g('pression_statique_bar'), 'Pression statique', 30),
+    debit_max_m3h:nombre(g('debit_max_m3h'), 'Débit maximum', 2000),
+    debit_1bar_m3h:nombre(g('debit_1bar_m3h'), 'Débit à 1 bar', 2000),
+    volume_m3:nombre(g('volume_m3'), 'Volume', 100000),
+    anomalies:[...zone.querySelectorAll('input[name=anomalie]:checked')].map(x => x.value),
+  };
+  Object.keys(m).forEach(k => { if (m[k] == null || (Array.isArray(m[k]) && !m[k].length)) delete m[k]; });
+  return Object.keys(m).length ? m : null;
+}
+/* Signale en direct un débit ou un volume inférieur au besoin */
+document.addEventListener('input', ev => {
+  const z = ev.target.closest?.('.mesures-pei'); if (!z) return;
+  const p = ficheP(z.dataset.pei) || {}, a = z.querySelector('[data-alerte-pei]');
+  let m; try { m = lireMesures(z.closest('form')) || {}; } catch { return; }
+  const bas = insuffisant(m, p);
+  a.classList.toggle('alerte', bas); a.classList.toggle('aide', !bas);
+  a.textContent = bas ? `Inférieur au besoin inscrit sur la fiche (${p.debit_requis_m3h != null ? fmtNb(p.debit_requis_m3h, 'm³/h') : fmtNb(p.capacite_m3, 'm³')}) : résultat « avec réserves » ou « non conforme » à envisager.`
+    : p.debit_requis_m3h != null ? `Débit requis sur la fiche : ${fmtNb(p.debit_requis_m3h, 'm³/h')}.` : p.capacite_m3 != null ? `Capacité requise sur la fiche : ${fmtNb(p.capacite_m3, 'm³')}.` : '';
+});
+
+/* Impression de l'inventaire (annexe de l'arrêté communal DECI) */
+function inventaireDeciHtml(){
+  const t = (tete, lignes) => `<table><thead><tr>${tete.map(x => `<th>${x}</th>`).join('')}</tr></thead><tbody>${lignes.map(l => `<tr>${l.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  const L = listePei();
+  const n = k => L.filter(x => (x.p.disponibilite || 'disponible') === k).length;
+  return `<div class="entete"><h1>Inventaire des points d'eau incendie</h1><p>Commune de Pasly, situation au ${fmt(aujourdhui())}</p></div>
+    <p>${L.length} point${L.length > 1 ? 's' : ''} d'eau : ${n('disponible')} disponible${n('disponible') > 1 ? 's' : ''}, ${n('restreint')} avec restriction, ${n('indisponible')} indisponible${n('indisponible') > 1 ? 's' : ''}.</p>
+    ${t(['N°', 'Type', 'Statut', 'Adresse', 'Caractéristiques', 'Dernier contrôle', 'Prochain contrôle', 'Disponibilité'], L.map(x => {
+      const ech = S.echeances.filter(e => e.equipement_id === x.e.id).sort((a, b) => String(a.prochaine || '9').localeCompare(String(b.prochaine || '9')))[0];
+      const car = [x.p.diametre_mm ? `Ø ${x.p.diametre_mm} mm` : '', x.p.debit_requis_m3h != null ? `besoin ${fmtNb(x.p.debit_requis_m3h, 'm³/h')}` : '', x.p.capacite_m3 != null ? `${fmtNb(x.p.capacite_m3, 'm³')}` : ''].filter(Boolean).join(', ');
+      const der = x.m ? `${fmt(x.m.date_realisation)}<br>${esc(resumeMesures({ ...x.m.mesures, anomalies:[] }))}` : (ech?.dernier_controle ? fmt(ech.dernier_controle) : '—');
+      return [esc(x.p.numero || ''), esc(TYPES_PEI[x.p.type_pei] || ''), x.p.statut_juridique === 'prive' ? 'Privé' : 'Public', esc(x.p.adresse || x.e.localisation || ''),
+        esc(car), der, ech?.prochaine ? fmt(ech.prochaine) : '—',
+        esc(DISPO_PEI[x.p.disponibilite || 'disponible']) + (x.p.disponibilite_motif && x.p.disponibilite !== 'disponible' ? `<br>${esc(x.p.disponibilite_motif)}` : '')];
+    }))}
+    <p style="margin-top:8px">GPS : ${L.filter(x => x.p.latitude != null).map(x => `${esc(x.p.numero || x.e.nom)} (${x.p.latitude.toFixed(5)}, ${x.p.longitude.toFixed(5)})`).join(' ; ') || 'non renseigné'}.</p>`;
+}
+
+const AppDeci = {
+  vueEq(k){ S.eqVue = k; window.scrollTo(0, 0); rendre(); },
+  filtreDeci(k){ S.deciFiltre = k; rendre(); },
+  rayonDeci(v){ S.deciRayon = v; rendre(); },
+  voirSurCarte(id){ fermer(); S.eqVue = 'deci'; S.deciFiltre = ''; S.deciFocus = id; App.aller('equipements'); },
+
+  /* Création (admin) ou modification des caractéristiques d'un point d'eau */
+  formPei(eqId){
+    const e = eqId ? S.equipements.find(x => x.id === eqId) : null;
+    const p = (eqId && ficheP(eqId)) || { type_pei:'poteau', statut_juridique:'public', disponibilite:'disponible', debit_requis_m3h:60, diametre_mm:100 };
+    const creation = !eqId, siteDefaut = S.deci.params.site_id && S.sites.find(s => s.id === S.deci.params.site_id) ? S.deci.params.site_id : sitesActifs()[0]?.id;
+    const opt = (o, sel) => Object.entries(o).map(([k, l]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(l)}</option>`).join('');
+    ouvrir(tete(creation ? "Nouveau point d'eau" : "Point d'eau incendie") + `
+      <form data-id="${eqId || nouvelId()}" onsubmit="App.enregistrerPei(event,'${eqId || ''}')">
+        ${creation ? `<label>Rattaché au site<select name="site_id" required>${sitesActifs().map(s => `<option value="${s.id}" ${s.id === siteDefaut ? 'selected' : ''}>${esc(s.nom)}</option>`).join('')}</select>
+          <span class="aide">Les poteaux et bouches du réseau public vont dans « Défense incendie ». Un PEI privé situé sur un bâtiment communal peut être rattaché à ce bâtiment.</span></label>` : ''}
+        <div class="deux"><label>Numéro<input name="numero" required value="${esc(p.numero)}" placeholder="ex. 12"></label>
+          <label>Statut<select name="statut_juridique">${opt({ public:'Public', prive:'Privé' }, p.statut_juridique)}</select></label></div>
+        <label>Type<select name="type_pei" onchange="App.typePei(this)">${opt(TYPES_PEI, p.type_pei)}</select></label>
+        <label>Adresse<input name="adresse" value="${esc(p.adresse || e?.localisation)}" placeholder="ex. face au 4 rue de l'Église"></label>
+        <fieldset><legend>Position GPS</legend>
+          <div class="deux"><label>Latitude<input name="latitude" inputmode="decimal" value="${p.latitude ?? ''}" placeholder="49.40…" onpaste="App.collerGps(event)"></label>
+            <label>Longitude<input name="longitude" inputmode="decimal" value="${p.longitude ?? ''}" placeholder="3.29…"></label></div>
+          <button type="button" class="secondaire" onclick="App.positionPei(this)">Ma position (sur place)</button>
+          <span class="aide" data-gps>Placez-vous à côté du point d'eau. Vous pouvez aussi coller « latitude, longitude » copié depuis une carte.</span></fieldset>
+        <div class="deux champ-reseau" ${estReservePei(p.type_pei) ? 'hidden' : ''}><label>Diamètre (mm)<input name="diametre_mm" inputmode="numeric" value="${p.diametre_mm ?? ''}"></label>
+          <label>Débit requis (m³/h)<input name="debit_requis_m3h" inputmode="decimal" value="${p.debit_requis_m3h ?? ''}"></label></div>
+        <label class="champ-reserve" ${estReservePei(p.type_pei) ? '' : 'hidden'}>Capacité (m³)<input name="capacite_m3" inputmode="decimal" value="${p.capacite_m3 ?? ''}" placeholder="ex. 120"></label>
+        <label>Gestionnaire du réseau ou propriétaire<input name="gestionnaire" value="${esc(p.gestionnaire)}" placeholder="Syndicat des eaux, propriétaire privé…"></label>
+        <label>Disponibilité<select name="disponibilite">${opt(DISPO_PEI, p.disponibilite)}</select></label>
+        <label>Notes<textarea name="notes" rows="2">${esc(p.notes)}</textarea></label>
+        ${creation ? `<label class="case"><input type="checkbox" name="plan" checked>Prévoir le contrôle technique tous les ${S.deci.params.periodicite_ans || 3} ans</label>
+          <label>Date du prochain contrôle (si connue)<input type="date" name="date_depart"><span class="aide">Sinon, le contrôle apparaîtra « à planifier ».</span></label>` : ''}
+        <div class="boutons"><button class="principal" type="submit">Enregistrer</button></div>
+      </form>`);
+  },
+  typePei(sel){
+    const r = estReservePei(sel.value), f = sel.form;
+    f.querySelector('.champ-reseau').hidden = r; f.querySelector('.champ-reserve').hidden = !r;
+  },
+  collerGps(ev){
+    const t = (ev.clipboardData || window.clipboardData)?.getData('text') || '';
+    const m = t.match(/(-?\d{1,2}[.,]\d+)\s*[,; ]\s*(-?\d{1,3}[.,]\d+)/);
+    if (!m) return;
+    ev.preventDefault();
+    const f = ev.target.form; f.latitude.value = m[1].replace(',', '.'); f.longitude.value = m[2].replace(',', '.');
+  },
+  positionPei(btn){
+    const f = btn.form, info = f.querySelector('[data-gps]');
+    if (!navigator.geolocation) return toast('Localisation non disponible sur cet appareil.', true);
+    btn.disabled = true; info.textContent = 'Recherche de la position…';
+    navigator.geolocation.getCurrentPosition(pos => {
+      btn.disabled = false;
+      f.latitude.value = pos.coords.latitude.toFixed(6); f.longitude.value = pos.coords.longitude.toFixed(6);
+      const pr = Math.round(pos.coords.accuracy);
+      info.textContent = `Position relevée, précision ± ${pr} m.${pr > 25 ? ' Précision faible : attendez quelques secondes à découvert puis recommencez.' : ''}`;
+    }, err => {
+      btn.disabled = false;
+      info.textContent = err.code === 1 ? "Localisation refusée : autorisez-la pour ce site dans les réglages du téléphone." : 'Position introuvable. Réessayez à découvert.';
+    }, { enableHighAccuracy:true, timeout:20000, maximumAge:0 });
+  },
+  async enregistrerPei(ev, eqId){
+    ev.preventDefault();
+    const form = ev.target, f = new FormData(form), b = form.querySelector('button[type=submit]');
+    try {
+      const reserve = estReservePei(f.get('type_pei'));
+      const lat = nombre(f.get('latitude'), 'Latitude', 90), lng = String(f.get('longitude') || '').trim() ? Number(String(f.get('longitude')).trim().replace(',', '.')) : null;
+      if ((lat == null) !== (lng == null)) throw new Error('Renseignez la latitude et la longitude, ou aucune des deux.');
+      if (lng != null && (!Number.isFinite(lng) || lng < -180 || lng > 180)) throw new Error('Longitude : valeur invalide.');
+      if (lat != null && (Math.abs(lat - PASLY[0]) > 0.5 || Math.abs(lng - PASLY[1]) > 0.5)
+        && !confirm('Cette position est à plus de 30 km de Pasly. Latitude et longitude sont peut-être inversées. Enregistrer quand même ?')) return;
+      const numero = f.get('numero').trim();
+      const ancien = eqId ? ficheP(eqId) : null;
+      const d = { numero, type_pei:f.get('type_pei'), statut_juridique:f.get('statut_juridique'), adresse:vide(f.get('adresse').trim()),
+        latitude:lat, longitude:lng, diametre_mm:reserve ? null : nombre(f.get('diametre_mm'), 'Diamètre', 1000),
+        debit_requis_m3h:reserve ? null : nombre(f.get('debit_requis_m3h'), 'Débit requis', 2000),
+        capacite_m3:reserve ? nombre(f.get('capacite_m3'), 'Capacité') : null,
+        gestionnaire:vide(f.get('gestionnaire').trim()), disponibilite:f.get('disponibilite'), notes:vide(f.get('notes').trim()) };
+      if (d.diametre_mm != null) d.diametre_mm = Math.round(d.diametre_mm);
+      if (d.disponibilite !== (ancien?.disponibilite || 'disponible')){
+        d.disponibilite_date = aujourdhui();
+        if (d.disponibilite === 'disponible'){ d.disponibilite_motif = null; d.signale_sdis = false; d.signale_sdis_date = null; }
+      }
+      const doublon = Object.values(S.deci.pei).find(x => x.equipement_id !== eqId && norm(x.numero).trim() === norm(numero));
+      if (doublon) throw new Error(`Le numéro ${numero} est déjà utilisé par un autre point d'eau.`);
+      b.disabled = true;
+      const cle = eqId || form.dataset.id, nom = `${COURT_PEI[d.type_pei]} n° ${numero}`;
+      if (!eqId){
+        await insererUneFois('equipements', { id:cle, site_id:f.get('site_id'), nom, categorie:CAT_PEI, localisation:d.adresse });
+      } else if (estAdmin()){
+        const e = S.equipements.find(x => x.id === eqId);
+        if (e && (e.nom !== nom || e.localisation !== d.adresse) && (!ancien || estCatPei(e)))
+          await q(sb.from('equipements').update({ nom, localisation:d.adresse, categorie:CAT_PEI }).eq('id', eqId));
+      }
+      await q(sb.from('equipement_pei').upsert({ equipement_id:cle, ...d }, { onConflict:'equipement_id' }));
+      if (!eqId && f.get('plan') === 'on'){
+        S.idsPlanPei ??= {}; const pid = S.idsPlanPei[cle] ??= nouvelId();
+        await insererUneFois('plans', { id:pid, equipement_id:cle, libelle:'Contrôle technique périodique (débit et pression)', periodicite_valeur:S.deci.params.periodicite_ans || 3,
+          periodicite_unite:'an', date_depart:vide(f.get('date_depart')), rappel_jours:60, obligatoire:true });
+      }
+      toast("Point d'eau enregistré");
+      await recharger();
+      if (d.disponibilite !== 'disponible' && d.disponibilite !== (ancien?.disponibilite || 'disponible')) return App.formDispo(cle);
+      App.fiche(cle);
+    } catch (err){ toast(traduire(err), true); b.disabled = false; }
+  },
+
+  /* Changement rapide de disponibilité et suivi du signalement au SDIS */
+  formDispo(eqId){
+    const p = ficheP(eqId); if (!p) return App.formPei(eqId);
+    const e = S.equipements.find(x => x.id === eqId);
+    ouvrir(tete('Disponibilité') + `<p style="margin:-6px 0 14px"><b>${esc(e?.nom)}</b>${p.adresse ? `<br><span class="sous">${esc(p.adresse)}</span>` : ''}</p>
+      <form onsubmit="App.enregistrerDispo(event,'${eqId}')">
+        <fieldset><legend>État</legend>${Object.entries(DISPO_PEI).map(([k, l]) => `<label class="choix" style="--rc:var(--${k === 'disponible' ? 'ok' : k === 'restreint' ? 'bientot' : 'retard'})"><input type="radio" name="disponibilite" value="${k}" ${k === (p.disponibilite || 'disponible') ? 'checked' : ''}>${l}</label>`).join('')}</fieldset>
+        <label>Depuis le<input type="date" name="disponibilite_date" value="${p.disponibilite_date || aujourdhui()}" max="${aujourdhui()}"></label>
+        <label>Motif<input name="disponibilite_motif" value="${esc(p.disponibilite_motif)}" placeholder="Débit insuffisant, poteau accidenté, travaux sur le réseau…"></label>
+        <label class="case"><input type="checkbox" name="signale_sdis" ${p.signale_sdis ? 'checked' : ''}>Signalé au SDIS</label>
+        <label>Date du signalement<input type="date" name="signale_sdis_date" value="${p.signale_sdis_date || aujourdhui()}" max="${aujourdhui()}"></label>
+        <p class="aide" style="margin:0">Toute indisponibilité se signale sans délai au SDIS (18), puis se confirme par écrit. Le retour à la disponibilité se signale aussi.</p>
+        <div class="boutons"><button class="principal" type="submit">Enregistrer</button>
+          <button type="button" class="secondaire" onclick="App.courrielSdis('${eqId}', this.form)">Préparer le courriel</button></div>
+      </form>`);
+  },
+  async enregistrerDispo(ev, eqId){
+    ev.preventDefault();
+    const f = new FormData(ev.target), dispo = f.get('disponibilite'), sig = f.get('signale_sdis') === 'on';
+    const d = { disponibilite:dispo, disponibilite_date:vide(f.get('disponibilite_date')) || aujourdhui(),
+      disponibilite_motif:dispo === 'disponible' ? null : vide(f.get('disponibilite_motif').trim()),
+      signale_sdis:sig, signale_sdis_date:sig ? (vide(f.get('signale_sdis_date')) || aujourdhui()) : null };
+    try {
+      const r = await q(sb.from('equipement_pei').update(d).eq('equipement_id', eqId).select('equipement_id'));
+      if (!r.length) throw new Error('Modification refusée : droits insuffisants.');
+      toast('Disponibilité enregistrée');
+      await recharger(); App.fiche(eqId);
+    } catch (err){ toast(traduire(err), true); }
+  },
+  courrielSdis(eqId, form){
+    const p = { ...ficheP(eqId) }, e = S.equipements.find(x => x.id === eqId);
+    if (form){ const f = new FormData(form); p.disponibilite = f.get('disponibilite'); p.disponibilite_date = f.get('disponibilite_date'); p.disponibilite_motif = f.get('disponibilite_motif'); }
+    const dispo = p.disponibilite || 'disponible';
+    const objet = `Commune de Pasly : ${dispo === 'disponible' ? 'remise en service' : 'indisponibilité'} du PEI n° ${p.numero || ''}`;
+    const corps = [`Bonjour,`, ``,
+      dispo === 'disponible' ? `La commune de Pasly vous informe de la remise en service du point d'eau incendie suivant :` : `La commune de Pasly vous informe de l'${dispo === 'indisponible' ? 'indisponibilité' : 'indisponibilité partielle'} du point d'eau incendie suivant :`,
+      ``, `- Numéro : ${p.numero || ''}`, `- Type : ${TYPES_PEI[p.type_pei] || e?.categorie || ''}`, `- Adresse : ${p.adresse || e?.localisation || ''}`,
+      p.latitude != null ? `- Coordonnées GPS : ${p.latitude.toFixed(6)}, ${p.longitude.toFixed(6)}` : null,
+      `- État : ${DISPO_PEI[dispo]}${p.disponibilite_date ? ` depuis le ${fmt(p.disponibilite_date)}` : ''}`,
+      p.disponibilite_motif && dispo !== 'disponible' ? `- Motif : ${p.disponibilite_motif}` : null,
+      ``, `Cordialement,`, ``, S.profil?.nom || '', `Commune de Pasly`].filter(x => x !== null).join('\n');
+    location.href = `mailto:?subject=${encodeURIComponent(objet)}&body=${encodeURIComponent(corps)}`;
+  },
+
+  menuExportDeci(){
+    ouvrir(tete("Exporter les points d'eau") + `<div class="liste">
+      <button class="principal" onclick="App.imprimerDeci()">Imprimer l'inventaire (PDF)</button>
+      <button class="secondaire" onclick="App.csvDeci()">Tableau CSV (Excel)</button>
+      <p class="aide">L'inventaire imprimé peut être joint à l'arrêté communal DECI ou transmis au SDIS.</p></div>`);
+  },
+  imprimerDeci(){
+    fermer();
+    $('#impression').innerHTML = inventaireDeciHtml();
+    document.body.classList.add('imprime');
+    const fin = () => { document.body.classList.remove('imprime'); $('#impression').innerHTML = ''; window.removeEventListener('afterprint', fin); };
+    window.addEventListener('afterprint', fin);
+    window.print();
+  },
+  csvDeci(){
+    const c = celluleCSV, nb = v => v == null ? '' : String(v).replace('.', ',');
+    const lignes = [['Numéro','Type','Statut','Adresse','Latitude','Longitude','Diamètre (mm)','Débit requis (m³/h)','Capacité (m³)','Gestionnaire',
+      'Disponibilité','Depuis le','Motif','Signalé au SDIS','Dernier contrôle','Pression statique (bar)','Débit max (m³/h)','Débit à 1 bar (m³/h)','Volume (m³)','Anomalies','Prochain contrôle','Site']];
+    for (const x of listePei()){
+      const m = x.m?.mesures || {}, ech = S.echeances.filter(e => e.equipement_id === x.e.id).sort((a, b) => String(a.prochaine || '9').localeCompare(String(b.prochaine || '9')))[0];
+      lignes.push([x.p.numero, TYPES_PEI[x.p.type_pei] || '', x.p.statut_juridique === 'prive' ? 'Privé' : 'Public', x.p.adresse || x.e.localisation, nb(x.p.latitude), nb(x.p.longitude),
+        nb(x.p.diametre_mm), nb(x.p.debit_requis_m3h), nb(x.p.capacite_m3), x.p.gestionnaire, DISPO_PEI[x.p.disponibilite || 'disponible'],
+        x.p.disponibilite_date ? fmt(x.p.disponibilite_date) : '', x.p.disponibilite_motif, x.p.signale_sdis ? 'Oui' : 'Non',
+        x.m ? fmt(x.m.date_realisation) : (ech?.dernier_controle ? fmt(ech.dernier_controle) : ''), nb(m.pression_statique_bar), nb(m.debit_max_m3h), nb(m.debit_1bar_m3h), nb(m.volume_m3),
+        (m.anomalies || []).map(a => ANOMALIES_PEI[a] || a).join(', '), ech?.prochaine ? fmt(ech.prochaine) : '', S.sites.find(s => s.id === x.e.site_id)?.nom]);
+    }
+    telecharger(`points-eau-incendie-pasly-${aujourdhui()}.csv`, '﻿' + lignes.map(l => l.map(c).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
+    fermer();
+  },
+};
+
 const App = {
   fermer(){
     if (S.mdpObligatoire) return toast('Choisissez d’abord votre nouveau mot de passe.', true);
@@ -2786,6 +3240,7 @@ const App = {
     }
     if (peutSaisir()) h += `<div class="actions" style="margin:-2px 0 6px"><button class="petit secondaire" onclick="App.formEtiquettes({ eq:'${e.id}' })">Étiquette QR</button>
       ${estAdmin() && modelesCategorie(e.categorie).length ? `<button class="petit secondaire" onclick="App.proposerControles('${e.id}')">Contrôles habituels</button>` : ''}</div>`;
+    h += blocPei(e);
     h += blocCycleVie(e);
     h += `<h2>Contrôles prévus</h2>`;
     if (!plans.length) h += `<p class="vide">Aucun contrôle prévu pour cet équipement.</p>`;
@@ -2815,6 +3270,7 @@ const App = {
       h += `<div class="bloc histo r-${c.resultat}">
         <div class="histo-tete"><b>${fmt(c.date_realisation)}</b><span class="res">${RESULTATS[c.resultat]}</span></div>
         <p>${esc(libPlan[c.plan_id])}${c.intervenant ? `, par ${esc(c.intervenant)}` : ''}</p>
+        ${c.mesures ? `<p class="meta">${esc(resumeMesures(c.mesures))}</p>` : ''}
         ${c.observations ? `<p class="obs">${esc(c.observations)}</p>` : ''}
         ${c.resultat !== 'conforme' ? (c.reserve_levee ? `<p class="leve">Réserve levée le ${fmt(c.date_levee)}</p>` : `<p class="alerte">Réserve non levée</p>`) : ''}
         ${(c.documents || []).map(d => `<button class="doc" onclick="${lienDoc(d.chemin, 'rapports')}">📎 ${esc(d.nom || 'Document')}</button>`).join('')}
@@ -2974,6 +3430,7 @@ const App = {
         <fieldset><legend>Résultat</legend>
           ${Object.entries(RESULTATS).map(([k, v], i) => `<label class="choix r-${k}"><input type="radio" name="resultat" value="${k}" ${i === 0 ? 'checked' : ''}>${v}</label>`).join('')}
         </fieldset>
+        ${champsMesuresPei(x.equipement_id)}
         <label>Observations<textarea name="observations" rows="3" placeholder="Réserves, pièces changées, remarques…"></textarea></label>
         <label>Rapport ou photos<input type="file" name="fichiers" multiple accept="image/*,application/pdf">
           <span class="aide">Photographiez le rapport ou joignez le PDF du prestataire. Ils pourront aussi être ajoutés plus tard.</span></label>
@@ -2993,7 +3450,8 @@ const App = {
       /* Étape 1 : création du contrôle, une seule fois (identifiant fixé à l'ouverture du formulaire) */
       if (!e.cree){
         e.entrees = preparer(form.fichiers.files);
-        const f = new FormData(form), date = f.get('date_realisation');
+        const f = new FormData(form), date = f.get('date_realisation'), mesures = lireMesures(form);
+        e.resultat = f.get('resultat');
         b.textContent = 'Vérification…';
         const deja = await q(sb.from('controles').select('id').eq('plan_id', planId).eq('date_realisation', date).neq('id', id).limit(1));
         if (deja.length && !confirm(`Un contrôle est déjà enregistré pour le ${fmt(date)}. En créer un second ?`)){
@@ -3005,6 +3463,7 @@ const App = {
           intervenant: vide(f.get('intervenant').trim()),
           resultat: f.get('resultat'),
           observations: vide(f.get('observations').trim()),
+          ...(mesures ? { mesures } : {}),
         });
         /* Après une erreur, on ne suppose rien : on vérifie que CE contrôle existe réellement
            (cas d'une réponse perdue alors que l'enregistrement a abouti). Sinon, l'erreur est affichée. */
@@ -3028,9 +3487,13 @@ const App = {
         recharger();
         return;
       }
+      const resultat = e.resultat;
       delete ENVOIS[id];
       fermer(); toast('Contrôle enregistré');
       await recharger();
+      const pei = ficheP(eqId);
+      if (pei && resultat === 'non_conforme' && (pei.disponibilite || 'disponible') === 'disponible' && peutSaisir()
+        && confirm("Contrôle non conforme. Déclarer ce point d'eau indisponible (ou disponible avec restriction) et prévenir le SDIS ?")) App.formDispo(eqId);
     } catch (err){
       if (!e.cree && estErreurReseau(err) && confirm("Pas de réseau : enregistrer ce contrôle sur le téléphone et l'envoyer automatiquement plus tard ?")){
         delete ENVOIS[id]; return App.mettreEnFile('controle', form, { planId, eqId }); }
@@ -3245,7 +3708,7 @@ const App = {
         const x = S.echeances.find(e => e.plan_id === ctx.planId);
         await enfiler({ id, type, lot:nouvelId().slice(0, 8), libelle:`Contrôle : ${x?.libelle || ''} (${x?.equipement || ''})`, fichiers,
           donnees:{ planId:ctx.planId, eqId:ctx.eqId, date:f.get('date_realisation'), intervenant:vide((f.get('intervenant') || '').trim()),
-            resultat:f.get('resultat'), observations:vide((f.get('observations') || '').trim()) } });
+            resultat:f.get('resultat'), observations:vide((f.get('observations') || '').trim()), mesures:lireMesures(form) } });
       } else if (type === 'incident'){
         await enfiler({ id, type, lot:nouvelId().slice(0, 8), libelle:`Incident : ${ctx.titre}`, fichiers, donnees:ctx });
       }
@@ -3805,7 +4268,7 @@ const App = {
     toast('Préparation de l’export…');
     const tables = ['sites','equipements','plans','controles','documents','incidents','incident_documents','interventions','intervention_documents',
       'intervention_commentaires','prestataires','site_documents','depenses','factures','equipement_cycle_vie','parametres','profils',
-      'journal','incident_historique','intervention_historique','budget_historique','controle_groupes','groupe_documents','site_erp','commission_visites','commission_prescriptions','exercices_securite'];
+      'journal','incident_historique','intervention_historique','budget_historique','controle_groupes','groupe_documents','site_erp','commission_visites','commission_prescriptions','exercices_securite','equipement_pei'];
     const COLS = { incidents:COLS_INC, interventions:COLS_INT + (S.colsBudget ? COLS_INT_BUDGET : ''), plans:COLS_PLAN, profils:'id, nom, role, created_at',
       prestataires:'id, nom, notes, actif, cree_par, created_at',
       equipement_cycle_vie:'equipement_id, annee_mise_en_service, date_mise_en_service, duree_vie_ans, duree_vie_source, etat, etat_date, etat_commentaire, updated_at' };
@@ -5027,6 +5490,7 @@ const App = {
     telecharger(`${selection ? 'selection' : 'echeances'}-controles-pasly-${aujourdhui()}.csv`, '\ufeff' + lignes.map(l => l.map(c).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
   },
 };
+Object.assign(App, AppDeci);
 window.App = App;
 
 document.addEventListener('keydown', e => {
