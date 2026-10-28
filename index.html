@@ -1308,6 +1308,7 @@ function bilanHtml(B, avecDepenses){
       B.visites.map(v => [fmt(v.date_visite), esc(S.sites.find(x => x.id === v.site_id)?.nom || ''), NATURES_VISITE[v.nature], AVIS[v.avis]]))
       + `<p>Prescriptions levées dans l'année : ${prL}. Prescriptions non levées à ce jour : ${prO}.</p>`;
   }
+  h += bilanDeci(B, H, t);
   const anSuiv = String(Number(B.an) + 1);
   const aVenir = ech.filter(e => e.prochaine && e.prochaine.slice(0, 4) === anSuiv).length, contrats = (S.docsEcheance || []).filter(x => !x.suite_echeance && x.date_fin && x.date_fin.slice(0, 4) <= anSuiv).length;
   h += `${H('Perspectives')}<p>${aVenir} contrôles prévus en ${anSuiv}${contrats ? ` ; ${contrats} contrat${contrats > 1 ? 's' : ''} ou document${contrats > 1 ? 's' : ''} à renouveler d'ici fin ${anSuiv}` : ''}.</p>`;
@@ -1489,7 +1490,7 @@ async function rendre(){
   v.classList.toggle('large', S.vue === 'accueil');
   if (S.vue === 'accueil'){ if (!S.tdbReserves) v.innerHTML = '<p class="chargement">Chargement du tableau de bord…</p>'; await chargerReservesTdb(); v.innerHTML = vueAccueil(); }
   if (S.vue === 'echeances'){ if (S.cal?.vue === 'calendrier') v.innerHTML = vueCalendrier(); else { v.innerHTML = vueEcheances(); majEcheances(); } }
-  if (S.vue === 'equipements'){ if (S.eqVue === 'deci'){ v.innerHTML = vueDeci(); initCarteDeci(); } else v.innerHTML = vueEquipements(); }
+  if (S.vue === 'equipements'){ if (S.eqVue === 'tournee'){ v.innerHTML = vueTournee(); restaurerTournee(); } else if (S.eqVue === 'deci'){ v.innerHTML = vueDeci(); initCarteDeci(); } else v.innerHTML = vueEquipements(); }
   if (S.vue === 'reserves')  { v.innerHTML = '<p class="chargement">Chargement…</p>'; v.innerHTML = await vueReserves(); }
   if (S.vue === 'plus')      { v.innerHTML = '<p class="chargement">Chargement…</p>'; v.innerHTML = await vuePlus(); }
   if (S.vue === 'incidents'){
@@ -2795,9 +2796,12 @@ function vueDeci(){
   const retard = tous.filter(x => x.st === 'retard');
   const nonSignales = tous.filter(x => x.p.disponibilite === 'indisponible' && !x.p.signale_sdis);
   h += `<div class="entete-vue"><h1>Points d'eau</h1><span style="display:flex;gap:6px">
-    ${tous.length ? `<button class="secondaire petit" onclick="App.menuExportDeci()">Exporter</button>` : ''}
-    ${estAdmin() ? `<button class="principal petit" onclick="App.formPei()">Ajouter</button>` : ''}</span></div>`;
-  if (!tous.length) return h + `<p class="vide">Aucun point d'eau enregistré.${estAdmin() ? ' Ajoutez les poteaux, bouches et réserves de la commune avec le bouton « Ajouter ». Sur place, le bouton « Ma position » relève les coordonnées GPS.' : ''}</p>`;
+    ${estAdmin() ? `<button class="principal petit" onclick="App.formPei()">Ajouter</button>` : ''}</span></div>
+    <div class="actions" style="margin:0 0 12px">
+      ${peutSaisir() && tous.length ? `<button class="petit" onclick="App.ouvrirTournee()">Tournée de contrôle</button>` : ''}
+      ${estAdmin() ? `<button class="petit secondaire" onclick="App.formImport()">Importer un fichier</button>` : ''}
+      ${tous.length ? `<button class="petit secondaire" onclick="App.menuExportDeci()">Exporter</button>` : ''}</div>`;
+  if (!tous.length) return h + `<p class="vide">Aucun point d'eau enregistré.${estAdmin() ? " Importez la liste du SDIS (Excel ou CSV) avec « Importer un fichier », ou ajoutez les points un par un avec « Ajouter ». Sur place, le bouton « Ma position » relève les coordonnées GPS." : ''}</p>`;
   if (nonSignales.length) h += `<div class="bloc" style="border-color:var(--retard)"><p class="alerte">${nonSignales.length} point${nonSignales.length > 1 ? 's' : ''} d'eau indisponible${nonSignales.length > 1 ? 's' : ''} non signalé${nonSignales.length > 1 ? 's' : ''} au SDIS</p>
     <p class="aide" style="margin:4px 0 0">L'indisponibilité se signale sans délai au 18, puis se confirme par courriel au SDIS.</p>
     <div class="actions">${nonSignales.map(x => `<button class="petit secondaire" onclick="App.fiche('${x.e.id}')">${esc(nomPei(x))}</button>`).join('')}</div></div>`;
@@ -2893,7 +2897,9 @@ function blocPei(e){
     ${peutSaisir() && dispo !== 'disponible' && !p.signale_sdis ? `<button class="petit secondaire" onclick="App.courrielSdis('${e.id}')">Courriel au SDIS</button>` : ''}
     ${gps ? `<button class="petit secondaire" onclick="App.voirSurCarte('${e.id}')">Voir sur la carte</button>
       <a class="petit secondaire bouton-lien" href="https://www.google.com/maps/dir/?api=1&destination=${p.latitude},${p.longitude}" target="_blank" rel="noopener">Itinéraire</a>` : ''}
-    ${peutSaisir() ? `<button class="petit secondaire" onclick="App.formPei('${e.id}')">Modifier</button>` : ''}</div></div>`;
+    ${peutSaisir() ? `<button class="petit secondaire" onclick="App.formPei('${e.id}')">Modifier</button>` : ''}</div>
+    ${peutSaisir() ? `<div class="plan-tete" style="margin-top:14px"><b>Photos</b><button class="lien" onclick="App.ajouterPhotoPei('${e.id}')">Ajouter une photo</button></div>
+      <div id="photosPei" data-eq="${e.id}"><p class="aide" style="margin:6px 0 0">Chargement…</p></div>` : ''}</div>`;
   return h;
 }
 
@@ -3136,6 +3142,431 @@ const AppDeci = {
   },
 };
 
+/* ==================================================================
+   DECI (suite) : photos, tournée de contrôle, import de la liste du SDIS
+   ================================================================== */
+
+/* ---------- Photos d'un point d'eau (espace « batiments », dossier pei/<équipement>) ---------- */
+async function chargerPhotosPei(eqId){
+  const zone = $('#photosPei'); if (!zone || zone.dataset.eq !== eqId) return;
+  if (!peutSaisir()){ zone.innerHTML = ''; return; }
+  try {
+    const { data, error } = await sb.storage.from('batiments').list(`pei/${eqId}`, { limit:100, sortBy:{ column:'created_at', order:'desc' } });
+    if (error) throw error;
+    const fichiers = (data || []).filter(f => f.id && f.name !== '.emptyFolderPlaceholder');
+    if (!fichiers.length){ zone.innerHTML = `<p class="aide" style="margin:6px 0 0">Aucune photo.</p>`; return; }
+    const chemins = fichiers.map(f => `pei/${eqId}/${f.name}`);
+    const s = await sb.storage.from('batiments').createSignedUrls(chemins, 3600);
+    if (s.error) throw s.error;
+    const urls = Object.fromEntries((s.data || []).map(x => [x.path, x.signedUrl]));
+    if (!document.contains(zone)) return;
+    zone.innerHTML = `<div class="vignettes">${chemins.map(c => `<span style="display:grid;gap:2px"><button class="vignette" onclick="${lienDoc(c, 'batiments')}" aria-label="Photo"><img src="${esc(urls[c])}" alt="Photo du point d'eau" loading="lazy"></button>
+      ${estAdmin() ? `<button class="lien danger" style="font-size:.8rem;padding:0" onclick="App.supprimerPhotoPei('${eqId}', '${esc(c)}')">Supprimer</button>` : ''}</span>`).join('')}</div>`;
+  } catch (err){ if (document.contains(zone)) zone.innerHTML = `<p class="aide" style="margin:6px 0 0">Photos indisponibles : ${esc(traduire(err))}</p>`; }
+}
+
+/* ---------- Tournée de contrôle ---------- */
+const distanceM = (a, b) => {
+  const R = 6371000, rad = x => x * Math.PI / 180, dLat = rad(b[0] - a[0]), dLon = rad(b[1] - a[1]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+const fmtDist = m => m < 1000 ? `${Math.round(m / 10) * 10} m` : `${(m / 1000).toLocaleString('fr-FR', { maximumFractionDigits:1 })} km`;
+function planPei(eqId){
+  const l = S.echeances.filter(e => e.equipement_id === eqId);
+  return l.find(e => /contr[ôo]le technique/i.test(e.libelle)) || l[0] || null;
+}
+function etapesTournee(){
+  const T = S.tournee;
+  let l = listePei().filter(x => planPei(x.e.id))
+    .map(x => ({ ...x, plan:planPei(x.e.id) }));
+  if (T.filtre === 'echeance') l = l.filter(x => T.faits[x.e.id] || ['retard','bientot','planifier'].includes(statut(x.plan)));
+  // Ordre de passage : du plus proche au plus proche (depuis la position relevée), sinon par numéro
+  if (T.pos){
+    const avec = l.filter(x => x.p.latitude != null), sans = l.filter(x => x.p.latitude == null);
+    const ordre = []; let ici = T.pos;
+    while (avec.length){
+      let k = 0, d = Infinity;
+      avec.forEach((x, i) => { const v = distanceM(ici, [x.p.latitude, x.p.longitude]); if (v < d){ d = v; k = i; } });
+      const x = avec.splice(k, 1)[0]; x.dist = d; ordre.push(x); ici = [x.p.latitude, x.p.longitude];
+    }
+    l = ordre.concat(sans);
+  }
+  return l;
+}
+function vueTournee(){
+  const T = S.tournee ??= { filtre:'echeance', pos:null, faits:{}, ids:{}, brouillons:{}, intervenant:'' };
+  const l = etapesTournee(), nbFaits = l.filter(x => T.faits[x.e.id]).length;
+  let h = ligneMaj() + `<div class="entete-vue"><h1>Tournée</h1><button class="principal petit" onclick="App.finTournee()">Terminer</button></div>
+    <p class="aide" style="margin:0 0 10px">Saisie rapide des contrôles, point d'eau après point d'eau. Sans réseau, les saisies sont gardées sur le téléphone et envoyées au retour du réseau.</p>
+    <div class="segments" role="group" aria-label="Points d'eau de la tournée">
+      <button class="${T.filtre === 'echeance' ? 'actif' : ''}" onclick="App.filtreTournee('echeance')">À contrôler</button>
+      <button class="${T.filtre === 'tous' ? 'actif' : ''}" onclick="App.filtreTournee('tous')">Tous</button></div>
+    <div style="display:grid;gap:8px;margin-bottom:12px"><label>Intervenant<input id="tourneeIntervenant" value="${esc(T.intervenant)}" oninput="S.tournee.intervenant = this.value" placeholder="Nom de l'agent ou de l'entreprise"></label>
+      <button class="secondaire" onclick="App.positionTournee(this)">${T.pos ? 'Recalculer' : 'Trier'} depuis ma position</button></div>`;
+  if (!l.length) return h + `<p class="vide">${T.filtre === 'echeance' ? "Aucun point d'eau à contrôler pour le moment. Choisissez « Tous » pour faire une tournée complète." : "Aucun point d'eau avec un contrôle prévu."}</p>`;
+  h += `<p class="meta" style="margin:0 0 8px"><b>${nbFaits} / ${l.length}</b> contrôlé${nbFaits > 1 ? 's' : ''}${T.pos ? ', ordre de passage calculé depuis votre position' : ''}.</p><div class="liste">`;
+  l.forEach((x, i) => {
+    const fait = T.faits[x.e.id], id = T.ids[x.e.id] ??= nouvelId();
+    const ent = `<div class="plan-tete"><b>${i + 1}. ${esc(nomPei(x))} · ${esc(COURT_PEI[x.p.type_pei] || 'PEI')}</b>${x.dist != null ? `<span class="badge">${fmtDist(x.dist)}</span>` : ''}</div>
+      <p class="sous">${esc(x.p.adresse || x.e.localisation || '')}${x.m ? ` · dernières mesures du ${fmt(x.m.date_realisation)} : ${esc(resumeMesures({ ...x.m.mesures, anomalies:[] }))}` : ''}</p>`;
+    if (fait){
+      h += `<div class="bloc" style="border-left:6px solid var(--${fait.resultat === 'conforme' ? 'ok' : fait.resultat === 'reserves' ? 'bientot' : 'retard'})">${ent}
+        <p class="meta" style="margin-top:4px;font-weight:700;color:var(--${fait.resultat === 'conforme' ? 'ok' : fait.resultat === 'reserves' ? 'bientot' : 'retard'})">${RESULTATS[fait.resultat]}${fait.file ? ', en attente d\'envoi (hors réseau)' : ', enregistré'}</p>
+        ${fait.resultat === 'non_conforme' && (x.p.disponibilite || 'disponible') === 'disponible' ? `<div class="actions"><button class="petit" onclick="App.formDispo('${x.e.id}')">Déclarer l'indisponibilité</button></div>` : ''}</div>`;
+      return;
+    }
+    h += `<form class="bloc tournee" data-id="${id}" data-eq="${x.e.id}" onsubmit="App.enregistrerTournee(event,'${x.e.id}','${x.plan.plan_id}')">${ent}
+      <div class="actions" style="margin-top:0">${x.p.latitude != null ? `<a class="petit secondaire bouton-lien" href="https://www.google.com/maps/dir/?api=1&destination=${x.p.latitude},${x.p.longitude}" target="_blank" rel="noopener">Itinéraire</a>` : ''}
+        <span class="etiquette s-${statut(x.plan)}" style="align-self:center">${TITRES[statut(x.plan)]}</span></div>
+      ${champsMesuresPei(x.e.id)}
+      <label>Résultat<select name="resultat">${Object.entries(RESULTATS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+      <label>Observations<input name="observations" placeholder="Facultatif"></label>
+      <button class="principal" type="submit">Enregistrer</button></form>`;
+  });
+  return h + `</div>`;
+}
+/* Garde les saisies en cours si l'écran est redessiné (retour depuis l'itinéraire, actualisation) */
+document.addEventListener('input', ev => {
+  const f = ev.target.closest?.('form.tournee'); if (!f || !S.tournee) return;
+  S.tournee.brouillons[f.dataset.eq] = { valeurs:Object.fromEntries([...f.elements].filter(x => x.name && x.type !== 'checkbox').map(x => [x.name, x.value])),
+    anomalies:[...f.querySelectorAll('input[name=anomalie]:checked')].map(x => x.value) };
+});
+document.addEventListener('change', ev => {
+  const f = ev.target.closest?.('form.tournee'); if (f) f.dispatchEvent(new Event('input', { bubbles:true }));
+});
+function restaurerTournee(){
+  for (const f of document.querySelectorAll('form.tournee')){
+    const b = S.tournee?.brouillons[f.dataset.eq]; if (!b) continue;
+    for (const [k, v] of Object.entries(b.valeurs)) if (f.elements[k]) f.elements[k].value = v;
+    b.anomalies.forEach(a => { const c = f.querySelector(`input[name=anomalie][value="${a}"]`); if (c) c.checked = true; });
+    f.querySelector('input:not([type=checkbox])')?.dispatchEvent(new Event('input', { bubbles:true }));
+  }
+}
+
+/* ---------- Import de la liste des points d'eau (fichier du SDIS) ---------- */
+/* Lambert 93 (EPSG:2154) vers latitude / longitude (GRS80 ≈ WGS84) */
+function lambert93(x, y){
+  const n = 0.7256077650532670, c = 11754255.426096, xs = 700000, ys = 12655612.049876, e = 0.0818191910428158, lon0 = 3 * Math.PI / 180;
+  const dx = x - xs, dy = y - ys, R = Math.sqrt(dx * dx + dy * dy), gamma = Math.atan(dx / -dy);
+  const latIso = -Math.log(R / c) / n;
+  let phi = 2 * Math.atan(Math.exp(latIso)) - Math.PI / 2;
+  for (let i = 0; i < 30; i++){
+    const p = 2 * Math.atan(Math.pow((1 + e * Math.sin(phi)) / (1 - e * Math.sin(phi)), e / 2) * Math.exp(latIso)) - Math.PI / 2;
+    if (Math.abs(p - phi) < 1e-12){ phi = p; break; } phi = p;
+  }
+  return [phi * 180 / Math.PI, (lon0 + gamma / n) * 180 / Math.PI];
+}
+const CHAMPS_IMPORT = {
+  numero:{ l:'Numéro', mots:['numero pei','n pei','no pei','num pei','numero','num','n','no','id pei','identifiant','code pei','code'] },
+  type:{ l:'Type', mots:['type pei','type','nature','genre','categorie'] },
+  adresse:{ l:'Adresse', mots:['adresse','voie','rue','localisation','emplacement','lieu dit','lieu','situation'] },
+  commune:{ l:'Commune (pour filtrer)', mots:['commune','nom commune','ville','insee','code insee'] },
+  x:{ l:'Longitude ou X', mots:['longitude','lon','lng','coord x','coordonnee x','x l93','x lambert','x'] },
+  y:{ l:'Latitude ou Y', mots:['latitude','lat','coord y','coordonnee y','y l93','y lambert','y'] },
+  diametre:{ l:'Diamètre (mm)', mots:['diametre','dn','diam'] },
+  capacite:{ l:'Capacité (m³)', mots:['capacite','volume','contenance'] },
+  statut:{ l:'Public / privé', mots:['statut','domanialite','public prive','propriete','prive'] },
+  disponibilite:{ l:'Disponibilité', mots:['disponibilite','dispo','etat','indisponibilite'] },
+  gestionnaire:{ l:'Gestionnaire', mots:['gestionnaire','exploitant','proprietaire','concessionnaire'] },
+  infos:{ l:'Ajouter aux notes', mots:['debit','pression','observation','remarque','commentaire','anomalie'] },
+};
+const normEnt = v => norm(v).replace(/[^a-z0-9]+/g, ' ').trim();
+function detecterColonnes(entetes){
+  const m = {}, pris = new Set();
+  // Correspondance exacte d'abord, puis partielle ; chaque colonne n'est utilisée qu'une fois (sauf notes)
+  for (const passe of ['exact', 'partiel'])
+    for (const [cle, def] of Object.entries(CHAMPS_IMPORT)){
+      if (m[cle] != null && cle !== 'infos') continue;
+      for (const mot of def.mots){
+        const i = entetes.findIndex((h, k) => !pris.has(k) && (passe === 'exact' ? normEnt(h) === mot : (mot.length > 2 && normEnt(h).includes(mot))));
+        if (i < 0) continue;
+        if (cle === 'infos'){ (m.infos ??= []).push(i); pris.add(i); continue; }
+        m[cle] = i; pris.add(i); break;
+      }
+    }
+  return m;
+}
+function lireCSV(txt){
+  txt = txt.replace(/^﻿/, '');
+  const prem = txt.split(/\r?\n/).slice(0, 5).join('\n');
+  const sep = [';', '\t', ','].map(s => [s, prem.split(s).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const lignes = []; let l = [], c = '', q = false;
+  for (let i = 0; i < txt.length; i++){
+    const ch = txt[i];
+    if (q){ if (ch === '"'){ if (txt[i + 1] === '"'){ c += '"'; i++; } else q = false; } else c += ch; continue; }
+    if (ch === '"') q = true;
+    else if (ch === sep){ l.push(c); c = ''; }
+    else if (ch === '\n' || ch === '\r'){ if (ch === '\r' && txt[i + 1] === '\n') i++; l.push(c); lignes.push(l); l = []; c = ''; }
+    else c += ch;
+  }
+  if (c || l.length){ l.push(c); lignes.push(l); }
+  return lignes.filter(r => r.some(v => String(v).trim()));
+}
+let xlsxP = null;
+const chargerXLSX = () => window.XLSX ? Promise.resolve() : xlsxP ??= new Promise((res, rej) => {
+  const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+  s.onload = () => res(); s.onerror = () => { xlsxP = null; rej(new Error('Lecture des fichiers Excel indisponible (pas de réseau). Enregistrez le fichier en CSV et réessayez.')); };
+  document.head.appendChild(s);
+});
+async function lireFichierImport(f){
+  if (/\.(csv|txt)$/i.test(f.name)){
+    const buf = await f.arrayBuffer();
+    let txt = new TextDecoder('utf-8').decode(buf);
+    if (txt.includes('�')) txt = new TextDecoder('windows-1252').decode(buf);   // CSV enregistré par Excel
+    return lireCSV(txt);
+  }
+  await chargerXLSX();
+  const wb = XLSX.read(await f.arrayBuffer(), { type:'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'' }).filter(r => r.some(v => String(v).trim()));
+}
+const typeDepuis = v => { const t = norm(v);
+  if (/souple/.test(t)) return 'citerne_souple';
+  if (/enterr/.test(t)) return 'reserve_enterree';
+  if (/aspir|pena|naturel|mare|riviere|etang|puisard|cours d.eau/.test(t)) return 'point_aspiration';
+  if (/reserve|citerne|bache|cuve|ri\b|pea/.test(t)) return 'reserve_aerienne';
+  if (/bouche|\bbi\b/.test(t)) return 'bouche';
+  if (/poteau|\bpi\b|hydrant/.test(t)) return 'poteau';
+  return t ? 'autre' : 'poteau'; };
+const dispoDepuis = v => { const t = norm(v);
+  if (/indispo|hors service|\bhs\b|non disponible|inutilisable/.test(t)) return 'indisponible';
+  if (/restr|partiel|anomal|reserve|limite/.test(t)) return 'restreint';
+  return 'disponible'; };
+const nbImport = v => { const t = String(v ?? '').trim().replace(/\s/g, '').replace(',', '.'); if (!t) return null; const n = Number(t); return Number.isFinite(n) ? n : null; };
+
+function analyserImport(){
+  const I = S.imp, M = I.map, ent = I.lignes[I.entete] || [];
+  const v = (r, cle) => M[cle] != null && M[cle] !== '' ? String(r[M[cle]] ?? '').trim() : '';
+  const out = { nouveaux:[], majs:[], ignores:[], erreurs:[], horsCommune:0 };
+  const vus = new Set();
+  for (const [k, r] of I.lignes.slice(I.entete + 1).entries()){
+    const nl = I.entete + k + 2;
+    if (I.commune && M.commune != null && norm(v(r, 'commune')) !== norm(I.commune)){ out.horsCommune++; continue; }
+    const numero = v(r, 'numero');
+    if (!numero){ out.erreurs.push(`Ligne ${nl} : numéro manquant`); continue; }
+    if (vus.has(norm(numero))){ out.erreurs.push(`Ligne ${nl} : numéro ${numero} en double dans le fichier`); continue; }
+    vus.add(norm(numero));
+    let lat = null, lng = null;
+    const X = nbImport(v(r, 'x')), Y = nbImport(v(r, 'y'));
+    if (X != null && Y != null){
+      const l93 = I.coord === 'l93' || (I.coord === 'auto' && Math.abs(X) > 1000 && Math.abs(Y) > 1000);
+      [lat, lng] = l93 ? lambert93(X, Y) : [Y, X];
+      if (!(lat > 41 && lat < 52 && lng > -6 && lng < 10)){ out.erreurs.push(`Ligne ${nl} (n° ${numero}) : coordonnées hors de France, ignorées`); lat = lng = null; }
+      else { lat = Math.round(lat * 1e6) / 1e6; lng = Math.round(lng * 1e6) / 1e6; }
+    }
+    const type_pei = typeDepuis(v(r, 'type')), reserve = estReservePei(type_pei);
+    const infos = (M.infos || []).map(i => String(r[i] ?? '').trim() ? `${ent[i]} : ${String(r[i]).trim()}` : '').filter(Boolean);
+    const d = { numero, type_pei, adresse:v(r, 'adresse') || null, latitude:lat, longitude:lng,
+      statut_juridique:/priv/.test(norm(v(r, 'statut'))) ? 'prive' : 'public',
+      disponibilite:M.disponibilite != null ? dispoDepuis(v(r, 'disponibilite')) : undefined,
+      gestionnaire:v(r, 'gestionnaire') || null,
+      diametre_mm:!reserve && nbImport(v(r, 'diametre')) ? Math.round(nbImport(v(r, 'diametre'))) : null,
+      capacite_m3:reserve ? nbImport(v(r, 'capacite')) : null,
+      infos:infos.length ? `Fichier importé le ${fmt(aujourdhui())} : ${infos.join(' ; ')}` : null };
+    if (d.diametre_mm != null && (d.diametre_mm < 1 || d.diametre_mm > 1000)) d.diametre_mm = null;
+    // Point déjà connu : même numéro, ou équipement « Point d'eau incendie » de même nom sans fiche
+    const nom = `${COURT_PEI[type_pei]} n° ${numero}`;
+    const exist = Object.values(S.deci.pei).find(x => norm(x.numero).trim() === norm(numero))?.equipement_id
+      || S.equipements.find(e => estCatPei(e) && !ficheP(e.id) && norm(e.nom) === norm(nom))?.id;
+    if (exist) (I.maj ? out.majs : out.ignores).push({ ...d, eqId:exist, nl });
+    else out.nouveaux.push({ ...d, nl });
+  }
+  return out;
+}
+function rendreImport(){
+  const I = S.imp, zone = $('#importEtape'); if (!zone || !I) return;
+  const ent = I.lignes[I.entete] || [];
+  const opt = (cle) => `<option value="">—</option>` + ent.map((h, i) => `<option value="${i}" ${String(I.map[cle]) === String(i) ? 'selected' : ''}>${esc(h || `Colonne ${i + 1}`)}</option>`).join('');
+  const A = analyserImport();
+  const communes = I.map.commune != null ? [...new Set(I.lignes.slice(I.entete + 1).map(r => String(r[I.map.commune] ?? '').trim()).filter(Boolean))].sort() : [];
+  let h = `<p class="meta">${I.lignes.length - I.entete - 1} ligne${I.lignes.length - I.entete - 2 ? 's' : ''} lue${I.lignes.length - I.entete - 2 ? 's' : ''} dans <b>${esc(I.nom)}</b>.</p>
+    <details ${I.ouvrirCols ? 'open' : ''} ontoggle="S.imp.ouvrirCols = this.open"><summary style="cursor:pointer;font-weight:700">Correspondance des colonnes</summary>
+    <div class="grille-filtres">${Object.entries(CHAMPS_IMPORT).filter(([k]) => k !== 'infos').map(([k, d]) => `<label>${d.l}<select onchange="App.colImport('${k}', this.value)">${opt(k)}</select></label>`).join('')}</div>
+    ${(I.map.infos || []).length ? `<p class="aide">Colonnes ajoutées aux notes : ${I.map.infos.map(i => esc(ent[i])).join(', ')}.</p>` : ''}</details>
+    ${communes.length > 1 ? `<label>Commune à importer<select onchange="App.optImport('commune', this.value)"><option value="">Toutes (${communes.length})</option>${communes.map(c => `<option ${c === I.commune ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>` : ''}
+    <label>Coordonnées<select onchange="App.optImport('coord', this.value)">${[['auto', 'Détection automatique'], ['wgs84', 'Latitude / longitude (GPS)'], ['l93', 'Lambert 93 (X / Y en mètres)']].map(([k, l]) => `<option value="${k}" ${I.coord === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    <label class="case"><input type="checkbox" ${I.maj ? 'checked' : ''} onchange="App.optImport('maj', this.checked)">Mettre à jour les points d'eau déjà présents (même numéro)</label>
+    <label class="case"><input type="checkbox" ${I.plan ? 'checked' : ''} onchange="App.optImport('plan', this.checked)">Prévoir le contrôle technique tous les ${S.deci.params.periodicite_ans || 3} ans pour les nouveaux points</label>
+    <div class="bloc"><b>${A.nouveaux.length} nouveau${A.nouveaux.length > 1 ? 'x' : ''}</b> · ${A.majs.length} mis à jour · ${A.ignores.length} déjà présent${A.ignores.length > 1 ? 's' : ''} ignoré${A.ignores.length > 1 ? 's' : ''}${A.horsCommune ? ` · ${A.horsCommune} d'une autre commune` : ''}
+      ${A.erreurs.length ? `<p class="alerte" style="margin-top:6px">${A.erreurs.length} ligne${A.erreurs.length > 1 ? 's' : ''} écartée${A.erreurs.length > 1 ? 's' : ''} ou incomplète${A.erreurs.length > 1 ? 's' : ''} :</p><ul class="aide" style="margin:4px 0 0;padding-left:18px">${A.erreurs.slice(0, 8).map(e => `<li>${esc(e)}</li>`).join('')}${A.erreurs.length > 8 ? `<li>… et ${A.erreurs.length - 8} autre(s)</li>` : ''}</ul>` : ''}</div>`;
+  const ap = A.nouveaux.concat(A.majs).slice(0, 8);
+  if (ap.length) h += `<div class="tab-wrap"><table class="synth"><thead><tr><th>N°</th><th>Type</th><th>Adresse</th><th>GPS</th><th>État</th></tr></thead><tbody>
+    ${ap.map(d => `<tr><td>${esc(d.numero)}</td><td>${esc(COURT_PEI[d.type_pei])}</td><td>${esc(d.adresse || '')}</td><td>${d.latitude != null ? `${d.latitude.toFixed(4)}, ${d.longitude.toFixed(4)}` : '—'}</td><td>${d.disponibilite ? esc(DISPO_PEI[d.disponibilite]) : '—'}</td></tr>`).join('')}</tbody></table></div>
+    <p class="aide">Aperçu des ${ap.length} premiers. Vérifiez qu'un point au moins tombe au bon endroit sur la carte après l'import.</p>`;
+  h += `<div class="boutons"><button class="principal" ${A.nouveaux.length + A.majs.length ? '' : 'disabled'} onclick="App.lancerImport(this)">Importer ${A.nouveaux.length + A.majs.length} point${A.nouveaux.length + A.majs.length > 1 ? 's' : ''} d'eau</button></div>`;
+  zone.innerHTML = h;
+}
+
+/* ---------- Bilan annuel : section défense incendie ---------- */
+function bilanDeci(B, H, t){
+  if (!deciPret()) return '';
+  const L = listePei(); if (!L.length) return '';
+  const ids = new Set(L.map(x => x.e.id));
+  const ctrl = B.ctrlAn.filter(c => ids.has(c.plans?.equipement_id));
+  const n = k => L.filter(x => (x.p.disponibilite || 'disponible') === k).length;
+  const retard = L.filter(x => x.st === 'retard').length, jamais = L.filter(x => !S.echeances.some(e => e.equipement_id === x.e.id && e.dernier_controle)).length;
+  const insuf = L.filter(x => insuffisant(x.m?.mesures, x.p)).length;
+  return H("Défense extérieure contre l'incendie") + t(['Situation à ce jour', 'Nombre'], [
+      ["Points d'eau recensés", L.length], ['Disponibles', n('disponible')], ['Disponibles avec restriction', n('restreint')], ['Indisponibles', n('indisponible')],
+      ['Contrôle technique en retard', retard], ['Jamais contrôlés', jamais], ['Dernière mesure sous le besoin inscrit', insuf]])
+    + `<p>${ctrl.length} contrôle${ctrl.length > 1 ? 's' : ''} de point d'eau réalisé${ctrl.length > 1 ? 's' : ''} en ${B.an}, dont ${ctrl.filter(c => c.resultat === 'conforme').length} conforme${ctrl.filter(c => c.resultat === 'conforme').length > 1 ? 's' : ''}.
+      ${n('indisponible') ? `Points indisponibles : ${L.filter(x => x.p.disponibilite === 'indisponible').map(x => `n° ${esc(x.p.numero)}${x.p.disponibilite_motif ? ` (${esc(x.p.disponibilite_motif)})` : ''}`).join(', ')}.` : ''}</p>`;
+}
+
+Object.assign(AppDeci, {
+  /* Photos */
+  ajouterPhotoPei(eqId){
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+    inp.onchange = async () => {
+      const zone = $('#photosPei'); if (zone) zone.innerHTML = '<p class="chargement">Envoi…</p>';
+      let ok = 0;
+      for (const f of inp.files){
+        try {
+          const c = await compresser(f);
+          const chemin = `pei/${eqId}/${new Date().toISOString().replace(/[:.]/g, '-')}-${nouvelId().slice(0, 6)}.jpg`;
+          const up = await sb.storage.from('batiments').upload(chemin, c, { contentType:c.type || 'image/jpeg' });
+          if (up.error) throw up.error;
+          ok++;
+        } catch (err){ toast('Photo non envoyée : ' + traduire(err), true); }
+      }
+      if (ok) toast(`${ok} photo${ok > 1 ? 's' : ''} ajoutée${ok > 1 ? 's' : ''}`);
+      chargerPhotosPei(eqId);
+    };
+    inp.click();
+  },
+  async supprimerPhotoPei(eqId, chemin){
+    if (!confirm('Supprimer définitivement cette photo ?')) return;
+    const { error } = await sb.storage.from('batiments').remove([chemin]);
+    if (error) toast(traduire(error), true); else toast('Photo supprimée');
+    chargerPhotosPei(eqId);
+  },
+
+  /* Tournée */
+  ouvrirTournee(){ S.tournee ??= { filtre:'echeance', pos:null, faits:{}, ids:{}, brouillons:{}, intervenant:'' }; S.eqVue = 'tournee'; S.vue = 'equipements'; window.scrollTo(0, 0); rendre(); },
+  filtreTournee(k){ S.tournee.filtre = k; rendre(); },
+  positionTournee(btn){
+    if (!navigator.geolocation) return toast('Localisation non disponible sur cet appareil.', true);
+    btn.disabled = true; btn.textContent = 'Localisation…';
+    navigator.geolocation.getCurrentPosition(p => { S.tournee.pos = [p.coords.latitude, p.coords.longitude]; rendre(); },
+      e => { btn.disabled = false; btn.textContent = 'Trier depuis ma position'; toast(e.code === 1 ? 'Localisation refusée : autorisez-la dans les réglages du téléphone.' : 'Position introuvable.', true); },
+      { enableHighAccuracy:true, timeout:20000, maximumAge:60000 });
+  },
+  async enregistrerTournee(ev, eqId, planId){
+    ev.preventDefault();
+    const form = ev.target, id = form.dataset.id, b = form.querySelector('button[type=submit]');
+    let mesures;
+    try { mesures = lireMesures(form); } catch (err){ return toast(traduire(err), true); }
+    const D = { planId, eqId, date:aujourdhui(), intervenant:vide((S.tournee.intervenant || '').trim()), resultat:form.resultat.value,
+      observations:vide(form.observations.value.trim()), mesures };
+    const x = S.echeances.find(e => e.plan_id === planId);
+    const enFile = async () => { await enfiler({ id, type:'controle', lot:nouvelId().slice(0, 8), libelle:`Contrôle : ${x?.libelle || ''} (${x?.equipement || ''})`, fichiers:[], donnees:D });
+      S.tournee.faits[eqId] = { resultat:D.resultat, file:true }; };
+    b.disabled = true; b.textContent = 'Enregistrement…';
+    try {
+      if (!navigator.onLine) await enFile();
+      else {
+        const { error } = await sb.from('controles').insert({ id, plan_id:planId, date_realisation:D.date, intervenant:D.intervenant, resultat:D.resultat,
+          observations:D.observations, ...(mesures ? { mesures } : {}) });
+        if (error && !(await verifierControle(id, planId).catch(() => null))){
+          if (estErreurReseau(error)) await enFile(); else throw error;
+        } else S.tournee.faits[eqId] = { resultat:D.resultat };
+      }
+      delete S.tournee.brouillons[eqId];
+      toast(S.tournee.faits[eqId]?.file ? 'Gardé sur le téléphone, envoi au retour du réseau' : 'Contrôle enregistré');
+      rendre();
+    } catch (err){
+      if (estErreurReseau(err)){ await enFile(); delete S.tournee.brouillons[eqId]; toast('Gardé sur le téléphone, envoi au retour du réseau'); return rendre(); }
+      toast(traduire(err), true); b.disabled = false; b.textContent = 'Enregistrer';
+    }
+  },
+  async finTournee(){
+    const n = Object.keys(S.tournee?.faits || {}).length;
+    S.tournee = null; S.eqVue = 'deci';
+    if (n) toast(`Tournée terminée : ${n} contrôle${n > 1 ? 's' : ''} saisi${n > 1 ? 's' : ''}`);
+    await recharger();
+  },
+
+  /* Import */
+  formImport(){
+    if (!estAdmin()) return;
+    S.imp = null;
+    ouvrir(tete("Importer des points d'eau") + `
+      <p class="aide" style="margin:-4px 0 10px">Fichier Excel (.xlsx, .xls, .ods) ou CSV, par exemple la liste des points d'eau transmise par le SDIS. La première feuille est lue ; les colonnes sont reconnues automatiquement et peuvent être corrigées.</p>
+      <label>Fichier<input type="file" accept=".csv,.txt,.xlsx,.xls,.ods" onchange="App.lireImport(this)"></label>
+      <div id="importEtape"></div>`);
+  },
+  async lireImport(inp){
+    const f = inp.files[0]; if (!f) return;
+    const zone = $('#importEtape'); zone.innerHTML = '<p class="chargement">Lecture du fichier…</p>';
+    try {
+      const lignes = await lireFichierImport(f);
+      if (lignes.length < 2) throw new Error('Fichier vide ou illisible.');
+      // Ligne d'en-tête : la première (parmi les 10 premières) qui contient le plus d'intitulés reconnus
+      let entete = 0, meilleur = -1;
+      lignes.slice(0, 10).forEach((r, i) => { const n = Object.keys(detecterColonnes(r.map(String))).length; if (n > meilleur){ meilleur = n; entete = i; } });
+      const map = detecterColonnes(lignes[entete].map(String));
+      let commune = '';
+      if (map.commune != null){
+        const vals = [...new Set(lignes.slice(entete + 1).map(r => String(r[map.commune] ?? '').trim()))];
+        commune = vals.find(v => /pasly|02586/i.test(norm(v))) || (vals.length === 1 ? vals[0] : '');
+      }
+      S.imp = { nom:f.name, lignes:lignes.map(r => r.map(v => String(v ?? ''))), entete, map, commune, coord:'auto', maj:true, plan:true, ouvrirCols:map.numero == null };
+      if (map.numero == null) toast('Colonne du numéro non reconnue : choisissez-la dans « Correspondance des colonnes ».', true);
+      rendreImport();
+    } catch (err){ zone.innerHTML = `<p class="maj erreur">${esc(traduire(err))}</p>`; }
+  },
+  colImport(cle, v){ S.imp.map[cle] = v === '' ? null : Number(v); rendreImport(); },
+  optImport(k, v){ S.imp[k] = v; rendreImport(); },
+  async lancerImport(btn){
+    const A = analyserImport(), site = S.deci.params.site_id && S.sites.find(s => s.id === S.deci.params.site_id) ? S.deci.params.site_id : sitesActifs()[0]?.id;
+    if (!site) return toast("Aucun site pour accueillir les points d'eau.", true);
+    if (!confirm(`Importer ${A.nouveaux.length} nouveau(x) point(s) d'eau${A.majs.length ? ` et mettre à jour ${A.majs.length} point(s) existant(s)` : ''} ?`)) return;
+    btn.disabled = true; btn.textContent = 'Import en cours…';
+    const ids = S.imp.ids ??= {};      // identifiants fixés : relancer après une erreur ne crée pas de doublon
+    const fiche = (d, eqId, ancien = {}) => {
+      const o = { equipement_id:eqId, numero:d.numero, type_pei:d.type_pei, statut_juridique:d.statut_juridique, adresse:d.adresse ?? ancien.adresse ?? null,
+        latitude:d.latitude ?? ancien.latitude ?? null, longitude:d.longitude ?? ancien.longitude ?? null,
+        diametre_mm:d.diametre_mm ?? ancien.diametre_mm ?? null, capacite_m3:d.capacite_m3 ?? ancien.capacite_m3 ?? null,
+        gestionnaire:d.gestionnaire ?? ancien.gestionnaire ?? null,
+        debit_requis_m3h:ancien.debit_requis_m3h ?? (estReservePei(d.type_pei) ? null : 60),
+        notes:[ancien.notes, d.infos].filter(Boolean).join('\n') || null };
+      if (d.disponibilite && d.disponibilite !== (ancien.disponibilite || 'disponible')){ o.disponibilite = d.disponibilite; o.disponibilite_date = aujourdhui(); }
+      return o;
+    };
+    try {
+      const nv = A.nouveaux.map(d => ({ d, id:ids[norm(d.numero)] ??= nouvelId() }));
+      for (let i = 0; i < nv.length; i += 200){
+        const lot = nv.slice(i, i + 200);
+        const { error } = await sb.from('equipements').insert(lot.map(({ d, id }) => ({ id, site_id:site, nom:`${COURT_PEI[d.type_pei]} n° ${d.numero}`, categorie:CAT_PEI, localisation:d.adresse })));
+        if (error){
+          const v = await sb.from('equipements').select('id').in('id', lot.map(x => x.id));
+          if (v.error || (v.data || []).length !== lot.length) throw error;          // réponse perdue mais création faite
+        }
+      }
+      const fiches = nv.map(({ d, id }) => fiche(d, id)).concat(A.majs.map(d => fiche(d, d.eqId, ficheP(d.eqId) || {})));
+      for (let i = 0; i < fiches.length; i += 200) await q(sb.from('equipement_pei').upsert(fiches.slice(i, i + 200), { onConflict:'equipement_id' }));
+      for (const d of A.majs){
+        const e = S.equipements.find(x => x.id === d.eqId), nom = `${COURT_PEI[d.type_pei]} n° ${d.numero}`;
+        if (e && (e.nom !== nom || (d.adresse && e.localisation !== d.adresse))) await q(sb.from('equipements').update({ nom, localisation:d.adresse ?? e.localisation, categorie:CAT_PEI }).eq('id', d.eqId));
+      }
+      if (S.imp.plan && nv.length){
+        const plans = nv.map(({ id }) => ({ id:ids['plan:' + id] ??= nouvelId(), equipement_id:id, libelle:'Contrôle technique périodique (débit et pression)',
+          periodicite_valeur:S.deci.params.periodicite_ans || 3, periodicite_unite:'an', rappel_jours:60, obligatoire:true }));
+        const { error } = await sb.from('plans').insert(plans);
+        if (error){ const v = await sb.from('plans').select('id').in('id', plans.map(p => p.id)); if (v.error || (v.data || []).length !== plans.length) throw error; }
+      }
+      fermer(); S.imp = null;
+      toast(`Import terminé : ${nv.length} point${nv.length > 1 ? 's' : ''} créé${nv.length > 1 ? 's' : ''}, ${A.majs.length} mis à jour`);
+      S.eqVue = 'deci'; S.deciFiltre = ''; S.vue = 'equipements';
+      await recharger();
+    } catch (err){
+      toast("Import interrompu : " + traduire(err) + ". Vous pouvez relancer : rien ne sera créé en double.", true);
+      btn.disabled = false; btn.textContent = "Relancer l'import";
+    }
+  },
+});
+
 const App = {
   fermer(){
     if (S.mdpObligatoire) return toast('Choisissez d’abord votre nouveau mot de passe.', true);
@@ -3281,6 +3712,7 @@ const App = {
       </div>`;
     }
     $('#modalContenu').innerHTML = h;
+    if (deciPret() && estPei(id)) chargerPhotosPei(id);
   },
 
   ouvrirRef(n){ const r = REFS_DOC[n]; if (r) App.ouvrirDoc(r.chemin, r.bucket); },
@@ -5372,6 +5804,7 @@ const App = {
         const objets = new Map();
         for (const d of await liste('')){
           if (d.id) { objets.set(d.name, d); continue; }
+          if (src.bucket === 'batiments' && d.name === 'pei') continue;
           for (const f of await liste(d.name)) if (f.id && f.name !== '.emptyFolderPlaceholder') objets.set(`${d.name}/${f.name}`, f);
         }
         const parChemin = {}; docs.forEach(d => (parChemin[d.chemin] ??= []).push(d));
