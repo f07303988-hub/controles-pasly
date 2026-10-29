@@ -384,6 +384,8 @@ fieldset.montant legend{padding:0 4px}
 a.bouton-lien{display:inline-flex;align-items:center;text-decoration:none}
 .mesures-pei{border:1px solid var(--ligne);border-radius:8px;padding:10px 12px}
 .mesures-pei details label.case{margin-top:8px}
+.nb-ast{display:inline-block;background:var(--retard);color:#fff;border-radius:9px;font-size:.7rem;padding:0 6px;line-height:17px;margin-left:2px}
+.segments button{padding:0 4px}
 </style>
 </head>
 <body class="deconnecte">
@@ -828,7 +830,7 @@ async function recharger(){
   }
   const n = S.echeances.filter(e => statut(e) === 'retard').length;
   const nb = $('#nbRetard'); nb.hidden = !n; nb.textContent = n;
-  if (!S.erreurMaj){ await chargerIncidents(); await chargerInterventions(); await chargerBudget(); await chargerERP(); await chargerEcheancesDocs(); try { await chargerDECI(); } catch {} }   // modules indépendants : leur échec n'affecte pas les autres onglets
+  if (!S.erreurMaj){ await chargerIncidents(); await chargerInterventions(); await chargerBudget(); await chargerERP(); await chargerEcheancesDocs(); try { await chargerDECI(); } catch {} try { await chargerAstreinte(); } catch {} }   // modules indépendants : leur échec n'affecte pas les autres onglets
   await rendre();
   return !S.erreurMaj;
 }
@@ -1497,6 +1499,7 @@ async function rendre(){
     if (S.sousVue === 'budget' && !voitFinances()) S.sousVue = 'incidents';
     if (S.sousVue === 'budget') v.innerHTML = vueBudget();
     else if (S.sousVue === 'interventions'){ v.innerHTML = vueInterventions(); majInterventions(); }
+    else if (S.sousVue === 'astreinte'){ v.innerHTML = vueAstreinte(); photosAst(); }
     else { v.innerHTML = vueIncidents(); majIncidents(); }
   }
 }
@@ -1856,6 +1859,12 @@ function vueAccueil(){
     <label>Horizon<select onchange="App.tdbFiltre('horizon', this.value)">${[7, 30, 90].map(n => opt(n, `${n} prochains jours`, F.horizon)).join('')}</select></label>
   </div>
   <div class="tdb"><div>`;
+  // Signalements d'astreinte à valider
+  if (astPret() && S.ast.nb && !F.site){
+    const urg = S.ast.liste.filter(x => x.tri === 'a_valider' && ['IMMEDIATE','URGENT'].includes(x.urgence)).length;
+    h += `<div class="bloc" style="border-color:var(--${urg ? 'retard' : 'accent'})"><p class="${urg ? 'alerte' : 'meta'}" style="font-weight:700">${S.ast.nb} signalement${S.ast.nb > 1 ? 's' : ''} d'astreinte à valider${urg ? `, dont ${urg} urgent${urg > 1 ? 's' : ''}` : ''}</p>
+      <div class="actions"><button class="petit" onclick="S.sousVue='astreinte';App.aller('incidents')">Voir les signalements</button></div></div>`;
+  }
   // Points d'eau incendie indisponibles
   if (deciPret() && !F.site){
     const indispo = listePei().filter(x => x.p.disponibilite === 'indisponible');
@@ -2172,8 +2181,9 @@ function blocCycleVie(e){
 /* ---------- Vue : interventions ---------- */
 function ongletsTravaux(){
   const b = (k, l) => `<button class="${S.sousVue === k ? 'actif' : ''}" aria-pressed="${S.sousVue === k}" onclick="App.sousVue('${k}')">${l}</button>`;
-  const budget = voitFinances() && S.intErreur !== 'absent';
-  return `<div class="segments ${budget ? 'trois' : ''}" role="group" aria-label="Travaux">${b('incidents', 'Incidents')}${b('interventions', 'Interventions')}${budget ? b('budget', 'Budget') : ''}</div>`;
+  const budget = voitFinances() && S.intErreur !== 'absent', ast = astPret();
+  const n = 2 + budget + ast;
+  return `<div class="segments" style="grid-template-columns:repeat(${n},1fr)" role="group" aria-label="Travaux">${b('incidents', 'Incidents')}${b('interventions', n > 3 ? 'Interv.' : 'Interventions')}${budget ? b('budget', 'Budget') : ''}${ast ? b('astreinte', `Astreinte${S.ast.nb ? ` <span class="nb-ast">${S.ast.nb}</span>` : ''}`) : ''}</div>`;
 }
 const nbFiltresInt = () => [S.fit.site, S.fit.responsable, S.fit.prestataire, S.fit.statut, S.fit.du, S.fit.au].filter(Boolean).length;
 function filtrerInt(base = false){
@@ -3567,6 +3577,168 @@ Object.assign(AppDeci, {
   },
 });
 
+/* ==================================================================
+   Signalements d'astreinte à valider (table astreinte_incidents,
+   alimentée par l'application Pasly Astreinte des téléphones)
+   ================================================================== */
+const CAT_AST = { voirie:'Voirie', eclairage:'Éclairage', eau:'Eau / Assainissement', arbre:'Arbre / Espaces verts', batiment:'Bâtiment communal',
+  stade:'Stade / Équipement', incendie:'Incendie / Sinistre', danger:'Danger', proprete:'Propreté / Dépôt', stationnement:'Stationnement',
+  inondation:'Inondation / Intempéries', autre:'Autre' };
+const URG_AST = { IMMEDIATE:'Urgence immédiate', URGENT:'Urgent', A_TRAITER:'À traiter', INFO:'Information' };
+const CLS_URG_AST = { IMMEDIATE:'s-retard', URGENT:'s-reserves', A_TRAITER:'s-bientot', INFO:'s-ok' };
+const ST_AST = { NOUVEAU:'Nouveau', PRIS_EN_CHARGE:'Pris en charge', EN_COURS:'Intervention en cours', PROGRAMMEE:'Intervention programmée', RESOLU:'Résolu', ARCHIVE:'Archivé' };
+const CAT_AST_INC = { eau:'plomberie', eclairage:'electricite', incendie:'securite', danger:'securite', arbre:'espaces_exterieurs', voirie:'espaces_exterieurs',
+  stade:'espaces_exterieurs', inondation:'espaces_exterieurs', proprete:'nettoyage' };
+const PRIO_AST_INC = { IMMEDIATE:'urgente', URGENT:'haute', A_TRAITER:'normale', INFO:'basse' };
+const STATUT_AST_INC = { NOUVEAU:'nouveau', PRIS_EN_CHARGE:'a_traiter', EN_COURS:'en_cours', PROGRAMMEE:'attente_prestataire', RESOLU:'resolu', ARCHIVE:'resolu' };
+S.ast = { liste:[], absent:false, erreur:null, filtre:'a_valider', nb:0 };
+
+async function chargerAstreinte(){
+  if (!peutSaisir()){ S.ast.absent = true; return; }
+  const cols = 'uuid, numero, statut, urgence, categorie, adresse, latitude, longitude, donnees, cree_le, recu_le, tri, tri_motif, tri_le, incident_id';
+  const [a, b] = await Promise.all([
+    sb.from('astreinte_incidents').select(cols).eq('tri', 'a_valider').order('cree_le', { ascending:false }).limit(500),
+    sb.from('astreinte_incidents').select(cols).neq('tri', 'a_valider').order('tri_le', { ascending:false, nullsFirst:false }).limit(100),
+  ]);
+  const err = a.error || b.error;
+  if (err){ S.ast.absent = tableAbsente(err) || /column .*tri/i.test(err.message || ''); S.ast.erreur = S.ast.absent ? null : traduire(err); S.ast.nb = 0; majBadgeAst(); return; }
+  S.ast.absent = false; S.ast.erreur = null;
+  S.ast.liste = [...(a.data || []), ...(b.data || [])];
+  S.ast.nb = (a.data || []).length; majBadgeAst();
+}
+function majBadgeAst(){
+  const b = $('#nbAst'); if (b){ b.hidden = !S.ast.nb; b.textContent = S.ast.nb; }
+}
+const astPret = () => peutSaisir() && !S.ast.absent;
+
+function carteAst(x){
+  const d = x.donnees || {}, photos = (d.photos || []).filter(p => p.chemin);
+  const lieu = x.adresse || (x.latitude != null ? `${Number(x.latitude).toFixed(5)}, ${Number(x.longitude).toFixed(5)}` : 'Lieu non précisé');
+  const inc = x.incident_id && S.incidents.find(i => i.id === x.incident_id);
+  return `<div class="bloc ${CLS_URG_AST[x.urgence] || 's-aucun'}" style="border-left:6px solid var(--c)">
+    <div class="plan-tete"><b>${esc(CAT_AST[x.categorie] || x.categorie || 'Incident')}</b><span class="etiquette ${CLS_URG_AST[x.urgence] || 's-aucun'}">${esc(URG_AST[x.urgence] || x.urgence || '')}</span></div>
+    <p class="sous">${esc(x.numero)} · ${new Date(x.cree_le).toLocaleString('fr-FR', { dateStyle:'long', timeStyle:'short' })} · ${esc(ST_AST[x.statut] || x.statut)}</p>
+    <p class="meta" style="margin-top:4px">📍 ${esc(lieu)}</p>
+    ${d.description ? `<p style="margin:6px 0 0;white-space:pre-wrap">${esc(d.description)}</p>` : ''}
+    ${d.reporterName ? `<p class="aide" style="margin:4px 0 0">Signalé par ${esc(d.reporterName)}${d.reporterPhone ? ` · ${esc(d.reporterPhone)}` : ''}</p>` : ''}
+    ${d.createdBy ? `<p class="aide" style="margin:2px 0 0">Saisi par l'astreinte : ${esc(d.createdBy)}</p>` : ''}
+    ${photos.length ? `<div class="vignettes" data-ast-photos="${x.uuid}">${photos.map(() => `<span class="vignette"></span>`).join('')}</div>` : ''}
+    ${x.tri === 'ecarte' ? `<p class="meta" style="margin-top:6px"><b>Écarté</b>${x.tri_le ? ` le ${fmt(String(x.tri_le).slice(0, 10))}` : ''}${x.tri_motif ? ` : ${esc(x.tri_motif)}` : ''}</p>` : ''}
+    ${x.tri === 'transmis' ? `<p class="leve" style="margin-top:6px">Transmis aux Travaux${x.tri_le ? ` le ${fmt(String(x.tri_le).slice(0, 10))}` : ''}</p>` : ''}
+    <div class="actions">
+      ${x.tri === 'a_valider' ? `<button class="petit" onclick="App.formValiderAst('${x.uuid}')">Valider et créer l'incident</button>
+        <button class="petit secondaire" onclick="App.formEcarterAst('${x.uuid}')">Écarter</button>` : ''}
+      ${x.tri === 'ecarte' ? `<button class="petit secondaire" onclick="App.remettreAst('${x.uuid}')">Remettre à valider</button>` : ''}
+      ${inc ? `<button class="petit secondaire" onclick="App.ficheIncident('${inc.id}')">Voir l'incident</button>` : ''}
+      ${x.latitude != null ? `<a class="petit secondaire bouton-lien" href="https://www.google.com/maps?q=${x.latitude},${x.longitude}" target="_blank" rel="noopener">Carte</a>` : ''}
+    </div></div>`;
+}
+function vueAstreinte(){
+  let h = ongletsTravaux() + `<h1>Signalements d'astreinte</h1>`;
+  if (S.ast.absent) return h + `<p class="vide">${peutSaisir() ? "Le module n'est pas encore installé : exécutez <b>migration-astreinte-tri.sql</b> dans Supabase." : 'Réservé aux administrateurs et contributeurs.'}</p>`;
+  if (S.ast.erreur) return h + `<p class="maj erreur">Signalements indisponibles : ${esc(S.ast.erreur)}</p>`;
+  const n = k => S.ast.liste.filter(x => x.tri === k).length;
+  const c = (k, l) => `<button class="${S.ast.filtre === k ? 'actif' : ''}" onclick="App.filtreAst('${k}')">${l} (${n(k)})</button>`;
+  h += `<p class="aide" style="margin:0 0 10px">Incidents remontés par les téléphones d'astreinte. Validez ceux qui concernent les bâtiments ou équipements communaux : ils deviennent des incidents à suivre. Écartez les autres (voirie déjà traitée, simple information…).</p>
+    <div class="chips" role="group" aria-label="Filtrer">${c('a_valider', 'À valider')}${c('transmis', 'Transmis')}${c('ecarte', 'Écartés')}</div>`;
+  const l = S.ast.liste.filter(x => x.tri === S.ast.filtre)
+    .sort((a, b) => S.ast.filtre === 'a_valider' ? (Object.keys(URG_AST).indexOf(a.urgence) - Object.keys(URG_AST).indexOf(b.urgence)) || String(b.cree_le).localeCompare(String(a.cree_le)) : 0);
+  if (!l.length) return h + `<p class="vide">${S.ast.filtre === 'a_valider' ? "Aucun signalement d'astreinte en attente." : 'Aucun signalement.'}</p>`;
+  return h + `<div class="liste">${l.map(carteAst).join('')}</div>`;
+}
+async function photosAst(){
+  const zones = [...document.querySelectorAll('[data-ast-photos]')]; if (!zones.length) return;
+  const chemins = [];
+  for (const z of zones){ const x = S.ast.liste.find(y => y.uuid === z.dataset.astPhotos); (x?.donnees?.photos || []).filter(p => p.chemin).forEach(p => chemins.push(p.chemin)); }
+  const { data, error } = await sb.storage.from('astreinte').createSignedUrls(chemins, 3600);
+  if (error) return;
+  const u = Object.fromEntries((data || []).map(d => [d.path, d.signedUrl]));
+  for (const z of zones){
+    const x = S.ast.liste.find(y => y.uuid === z.dataset.astPhotos);
+    z.innerHTML = (x?.donnees?.photos || []).filter(p => p.chemin).map(p => `<button class="vignette" onclick="${lienDoc(p.chemin, 'astreinte')}" aria-label="Photo"><img src="${esc(u[p.chemin] || '')}" alt="Photo du signalement" loading="lazy"></button>`).join('');
+  }
+}
+
+const AppAst = {
+  filtreAst(k){ S.ast.filtre = k; rendre(); },
+  formValiderAst(id){
+    const x = S.ast.liste.find(y => y.uuid === id); if (!x) return;
+    const d = x.donnees || {};
+    const titre = (d.description || '').split(/\n/)[0].slice(0, 90) || `${CAT_AST[x.categorie] || 'Incident'} – ${x.adresse || x.numero}`;
+    const opt = (o, sel) => Object.entries(o).map(([k, l]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(l)}</option>`).join('');
+    const site0 = x.categorie === 'incendie' && S.deci?.params?.site_id ? S.deci.params.site_id : '';
+    ouvrir(tete("Valider le signalement") + `
+      <p style="margin:-6px 0 12px"><b>${esc(x.numero)}</b> · ${esc(CAT_AST[x.categorie] || '')} · ${esc(URG_AST[x.urgence] || '')}<br><span class="sous">📍 ${esc(x.adresse || 'Lieu non précisé')}</span></p>
+      <form onsubmit="App.validerAst(event,'${id}')">
+        <label>Bâtiment ou lieu<select name="site_id" required onchange="this.form.equipement_id.innerHTML = optionsEquipInc(this.value, '')"><option value="">Choisir…</option>${sitesActifs().map(s => `<option value="${s.id}" ${s.id === site0 ? 'selected' : ''}>${esc(s.nom)}</option>`).join('')}</select></label>
+        <label>Équipement concerné<select name="equipement_id">${optionsEquipInc(site0, '')}</select></label>
+        <label>Titre<input name="titre" required value="${esc(titre)}"></label>
+        <div class="deux"><label>Catégorie<select name="categorie">${opt(CAT_INC, CAT_AST_INC[x.categorie] || 'autre')}</select></label>
+          <label>Priorité<select name="priorite">${opt(PRIO, PRIO_AST_INC[x.urgence] || 'normale')}</select></label></div>
+        <p class="aide" style="margin:0">Les photos du signalement sont jointes à l'incident. Le statut de départ reprend celui de l'astreinte (${esc(ST_AST[x.statut] || x.statut)}).</p>
+        <div class="boutons"><button class="principal" type="submit">Créer l'incident</button></div>
+      </form>`);
+  },
+  async validerAst(ev, id){
+    ev.preventDefault();
+    const x = S.ast.liste.find(y => y.uuid === id), f = new FormData(ev.target), b = ev.target.querySelector('button[type=submit]');
+    if (!x) return;
+    b.disabled = true; b.textContent = 'Création…';
+    try {
+      const d = x.donnees || {};
+      S.idsAst ??= {}; const incId = S.idsAst[id] ??= (d.travauxEnCours || nouvelId());      // identifiant fixé : pas de doublon en cas de nouvelle tentative
+      const st = STATUT_AST_INC[x.statut] || 'nouveau';
+      const desc = [d.description, x.adresse ? `Lieu : ${x.adresse}` : '', x.latitude != null ? `GPS : ${Number(x.latitude).toFixed(6)}, ${Number(x.longitude).toFixed(6)}` : '',
+        `Signalement d'astreinte ${x.numero} (${CAT_AST[x.categorie] || x.categorie}, ${URG_AST[x.urgence] || x.urgence}), validé par ${S.profil?.nom || S.profil?.email || 'la mairie'}.`].filter(Boolean).join('\n');
+      const ligne = { id:incId, site_id:f.get('site_id'), equipement_id:vide(f.get('equipement_id')), titre:f.get('titre').trim(), description:desc,
+        categorie:f.get('categorie'), priorite:f.get('priorite'), statut:st, date_signalement:String(x.cree_le).slice(0, 10),
+        signale_par:d.reporterName || d.createdBy || null, ...(st === 'resolu' ? { date_resolution:aujourdhui() } : {}) };
+      const ins = await sb.from('incidents').insert(ligne);
+      if (ins.error && !(await verifierIncident(incId).catch(() => null))) throw ins.error;
+      let k = 0;
+      for (const p of (d.photos || []).filter(p => p.chemin)){
+        k++;
+        const chemin = `${incId}/astreinte-${String(p.ts).replace(/[^0-9]/g, '')}.jpg`;
+        const deja = await sb.from('incident_documents').select('id').eq('incident_id', incId).eq('chemin', chemin).maybeSingle();
+        if (deja.data) continue;
+        const dl = await sb.storage.from('astreinte').download(p.chemin);
+        if (dl.error) throw dl.error;
+        const up = await sb.storage.from('incidents').upload(chemin, dl.data, { contentType:'image/jpeg' });
+        if (up.error && !fichierDejaStocke(up.error)) throw up.error;
+        await q(sb.from('incident_documents').insert({ incident_id:incId, chemin, nom:`Photo astreinte ${k}.jpg`, mime:'image/jpeg', type:p.phase === 'apres' ? 'photo_intervention' : 'photo_signalement' }));
+      }
+      // Le téléphone d'astreinte voit la transmission dans son historique
+      const r = await q(sb.from('astreinte_incidents').select('donnees').eq('uuid', id).single());
+      const don = { ...r.donnees, travauxId:incId };
+      don.history = [...(don.history || []), { ts:new Date().toISOString(), text:`🏗️ Validé par la mairie et transmis au suivi des bâtiments${S.profil?.nom ? ` · par ${S.profil.nom}` : ''}` }];
+      await q(sb.from('astreinte_incidents').update({ incident_id:incId, tri:'transmis', donnees:don }).eq('uuid', id));
+      delete S.idsAst[id];
+      toast('Incident créé');
+      await recharger();
+      App.ficheIncident(incId);
+    } catch (err){ toast(traduire(err), true); b.disabled = false; b.textContent = "Réessayer"; }
+  },
+  formEcarterAst(id){
+    const x = S.ast.liste.find(y => y.uuid === id); if (!x) return;
+    ouvrir(tete('Écarter le signalement') + `<p style="margin:-6px 0 12px"><b>${esc(x.numero)}</b> · ${esc(CAT_AST[x.categorie] || '')}</p>
+      <form onsubmit="App.ecarterAst(event,'${id}')">
+        <label>Motif<select name="m" onchange="this.form.motif.value = this.value">
+          ${['', 'Ne concerne pas les bâtiments communaux', 'Déjà traité par l\'astreinte', 'Doublon', 'Relève d\'un autre service (voirie, réseau, Département…)', 'Simple information'].map(v => `<option value="${esc(v)}">${esc(v || 'Choisir un motif…')}</option>`).join('')}</select></label>
+        <label>Précision<input name="motif" required placeholder="Motif de la décision"></label>
+        <div class="boutons"><button class="principal" type="submit">Écarter</button></div></form>`);
+  },
+  async ecarterAst(ev, id){
+    ev.preventDefault();
+    try {
+      await q(sb.from('astreinte_incidents').update({ tri:'ecarte', tri_motif:ev.target.motif.value.trim() }).eq('uuid', id));
+      fermer(); toast('Signalement écarté'); await chargerAstreinte(); rendre();
+    } catch {}
+  },
+  async remettreAst(id){
+    try { await q(sb.from('astreinte_incidents').update({ tri:'a_valider', tri_motif:null }).eq('uuid', id)); toast('Remis à valider'); await chargerAstreinte(); rendre(); } catch {}
+  },
+};
+
 const App = {
   fermer(){
     if (S.mdpObligatoire) return toast('Choisissez d’abord votre nouveau mot de passe.', true);
@@ -4700,7 +4872,7 @@ const App = {
     toast('Préparation de l’export…');
     const tables = ['sites','equipements','plans','controles','documents','incidents','incident_documents','interventions','intervention_documents',
       'intervention_commentaires','prestataires','site_documents','depenses','factures','equipement_cycle_vie','parametres','profils',
-      'journal','incident_historique','intervention_historique','budget_historique','controle_groupes','groupe_documents','site_erp','commission_visites','commission_prescriptions','exercices_securite','equipement_pei'];
+      'journal','incident_historique','intervention_historique','budget_historique','controle_groupes','groupe_documents','site_erp','commission_visites','commission_prescriptions','exercices_securite','equipement_pei','astreinte_incidents'];
     const COLS = { incidents:COLS_INC, interventions:COLS_INT + (S.colsBudget ? COLS_INT_BUDGET : ''), plans:COLS_PLAN, profils:'id, nom, role, created_at',
       prestataires:'id, nom, notes, actif, cree_par, created_at',
       equipement_cycle_vie:'equipement_id, annee_mise_en_service, date_mise_en_service, duree_vie_ans, duree_vie_source, etat, etat_date, etat_commentaire, updated_at' };
@@ -5923,7 +6095,7 @@ const App = {
     telecharger(`${selection ? 'selection' : 'echeances'}-controles-pasly-${aujourdhui()}.csv`, '\ufeff' + lignes.map(l => l.map(c).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
   },
 };
-Object.assign(App, AppDeci);
+Object.assign(App, AppDeci, AppAst);
 window.App = App;
 
 document.addEventListener('keydown', e => {
