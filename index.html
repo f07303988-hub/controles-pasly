@@ -2727,6 +2727,10 @@ const CLS_DISPO = { disponible:'s-ok', restreint:'s-bientot', indisponible:'s-re
 const ANOMALIES_PEI = { acces:'Accès gêné ou impraticable', signalisation:'Signalisation absente ou abîmée', numerotation:'Numéro absent ou illisible',
   manoeuvre:'Manœuvre difficile', fuite:'Fuite ou vidange défaillante', bouchons:'Bouchons ou capot manquants', peinture:'Peinture à refaire',
   aspiration:"Dispositif d'aspiration défaillant", niveau:'Niveau ou volume insuffisant' };
+window.ouvrirMail = url => { window.location.href = url; };
+const DEVIS_EMAIL_DEFAUT = 'facturation.travaux.hautsdefrance@suez.com';
+const TRAVAUX_PEI = ['Réparation du poteau incendie', 'Remplacement du poteau incendie', 'Remplacement par une bouche incendie', 'Contrôle de débit et de pression',
+  'Création d\'un nouveau point d\'eau', 'Déplacement du point d\'eau', 'Remise en peinture et signalisation', 'Autre (voir précisions)'];
 const estReservePei = t => ['reserve_aerienne','reserve_enterree','citerne_souple','point_aspiration'].includes(t);
 const PASLY = [49.4045, 3.2967];
 const IGN_ORTHO = 'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}';
@@ -2905,6 +2909,7 @@ function blocPei(e){
   h += `<div class="actions">
     ${peutSaisir() ? `<button class="petit" onclick="App.formDispo('${e.id}')">Disponibilité</button>` : ''}
     ${peutSaisir() && dispo !== 'disponible' && !p.signale_sdis ? `<button class="petit secondaire" onclick="App.courrielSdis('${e.id}')">Courriel au SDIS</button>` : ''}
+    ${peutSaisir() ? `<button class="petit secondaire" onclick="App.formDevisPei('${e.id}')">Demander un devis</button>` : ''}
     ${gps ? `<button class="petit secondaire" onclick="App.voirSurCarte('${e.id}')">Voir sur la carte</button>
       <a class="petit secondaire bouton-lien" href="https://www.google.com/maps/dir/?api=1&destination=${p.latitude},${p.longitude}" target="_blank" rel="noopener">Itinéraire</a>` : ''}
     ${peutSaisir() ? `<button class="petit secondaire" onclick="App.formPei('${e.id}')">Modifier</button>` : ''}</div>
@@ -3119,6 +3124,71 @@ const AppDeci = {
       p.disponibilite_motif && dispo !== 'disponible' ? `- Motif : ${p.disponibilite_motif}` : null,
       ``, `Cordialement,`, ``, S.profil?.nom || '', `Commune de Pasly`].filter(x => x !== null).join('\n');
     location.href = `mailto:?subject=${encodeURIComponent(objet)}&body=${encodeURIComponent(corps)}`;
+  },
+
+  /* Demande de devis au gestionnaire du réseau (Suez par défaut), avec suivi dans Travaux */
+  formDevisPei(eqId){
+    const p = ficheP(eqId) || {}, e = S.equipements.find(x => x.id === eqId), m = S.deci.mesures[eqId];
+    const dest = S.deci.params.devis_email || DEVIS_EMAIL_DEFAUT;
+    const precisions = [p.disponibilite && p.disponibilite !== 'disponible' ? `${DISPO_PEI[p.disponibilite]}${p.disponibilite_motif ? ' : ' + p.disponibilite_motif : ''}.` : '',
+      m?.mesures?.anomalies?.length ? `Anomalies constatées au contrôle du ${fmt(m.date_realisation)} : ${m.mesures.anomalies.map(a => (ANOMALIES_PEI[a] || a).toLowerCase()).join(', ')}.` : '',
+      m && insuffisant(m.mesures, p) ? `Débit mesuré insuffisant (${resumeMesures({ ...m.mesures, anomalies:[] })}).` : ''].filter(Boolean).join('\n');
+    const dejaEnCours = S.interventions.filter(i => i.equipement_id === eqId && ['a_planifier','devis_demande','devis_recu'].includes(i.statut));
+    ouvrir(tete('Demander un devis') + `<p style="margin:-6px 0 12px"><b>${esc(e?.nom || '')}</b>${p.adresse ? `<br><span class="sous">${esc(p.adresse)}</span>` : ''}</p>
+      ${dejaEnCours.length ? `<p class="alerte" style="margin:0 0 10px">Déjà en cours pour ce point d'eau : ${dejaEnCours.map(i => `${esc(i.objet)} (${STATUTS_INT[i.statut]})`).join(', ')}.</p>` : ''}
+      <form onsubmit="App.envoyerDevisPei(event,'${eqId}')">
+        <label>Destinataire<input name="dest" type="email" required value="${esc(dest)}">
+          <span class="aide">Service devis travaux du gestionnaire du réseau d'eau.${estAdmin() ? ' Modifiée ici, l\'adresse est retenue pour les prochaines demandes.' : ''}</span></label>
+        <label>Travaux demandés<select name="nature">${TRAVAUX_PEI.map(t => `<option>${esc(t)}</option>`).join('')}</select></label>
+        <label>Précisions<textarea name="precisions" rows="4" placeholder="Constat, urgence, accès…">${esc(precisions)}</textarea></label>
+        <label class="case"><input type="checkbox" name="suivi" checked>Créer le suivi dans Travaux (statut « Devis demandé »)</label>
+        <p class="aide" style="margin:0">Votre messagerie s'ouvre avec le courriel prêt à envoyer. Ajoutez-y des photos si besoin.</p>
+        <div class="boutons"><button class="principal" type="submit">Préparer le courriel</button></div></form>`);
+  },
+  async envoyerDevisPei(ev, eqId){
+    ev.preventDefault();
+    const f = new FormData(ev.target), b = ev.target.querySelector('button[type=submit]');
+    const p = ficheP(eqId) || {}, e = S.equipements.find(x => x.id === eqId), m = S.deci.mesures[eqId];
+    const dest = f.get('dest').trim(), nature = f.get('nature'), precisions = f.get('precisions').trim();
+    const nom = `${TYPES_PEI[p.type_pei] || "Point d'eau incendie"} n° ${p.numero || ''}`.trim();
+    b.disabled = true;
+    try {
+      if (estAdmin() && dest !== (S.deci.params.devis_email || DEVIS_EMAIL_DEFAUT)){
+        const v = { ...S.deci.params, devis_email:dest };
+        const r = await sb.from('parametres').update({ valeur:v }).eq('cle', 'deci').select('cle');
+        if (!r.error && r.data?.length) S.deci.params = v;
+      }
+      let ref = '';
+      if (f.get('suivi') === 'on'){
+        if (S.intErreur === 'absent') throw new Error("Le module Travaux n'est pas installé : décochez « Créer le suivi ».");
+        let prest = S.prestataires.find(x => /suez/i.test(x.nom) && /suez/i.test(dest)) || S.prestataires.find(x => norm(x.nom) === norm(p.gestionnaire || ''));
+        if (!prest && /suez/i.test(dest)){
+          const r = await sb.from('prestataires').insert({ nom:'Suez Eau France' }).select('id, nom').single();
+          if (!r.error) prest = r.data;
+        }
+        S.idsDevisPei ??= {}; const id = S.idsDevisPei[eqId] ??= nouvelId();
+        const { error } = await sb.from('interventions').insert({ id, site_id:e.site_id, equipement_id:eqId, objet:`${nature} – PEI n° ${p.numero || '?'}`.slice(0, 200),
+          description:[`Devis demandé le ${fmt(aujourdhui())} à ${dest}.`, precisions].filter(Boolean).join('\n'), statut:'devis_demande', prestataire_id:prest?.id || null });
+        if (error && !(await verifierIntervention(id).catch(() => null))) throw error;
+        delete S.idsDevisPei[eqId];
+        ref = id.slice(0, 8).toUpperCase();
+      }
+      const lignes = ['Madame, Monsieur,', '',
+        `La commune de Pasly vous remercie de bien vouloir lui adresser un devis pour les travaux suivants sur un point d'eau incendie :`, '',
+        `- Travaux demandés : ${nature}`, `- Point d'eau : ${nom}${p.statut_juridique === 'prive' ? ' (privé)' : ''}`,
+        `- Adresse : ${p.adresse || e?.localisation || 'à préciser'}, 02200 Pasly`,
+        p.latitude != null ? `- Coordonnées GPS : ${p.latitude.toFixed(6)}, ${p.longitude.toFixed(6)} (https://www.google.com/maps?q=${p.latitude},${p.longitude})` : null,
+        p.diametre_mm ? `- Diamètre : DN ${p.diametre_mm}` : null,
+        m ? `- Dernier contrôle (${fmt(m.date_realisation)}) : ${resumeMesures(m.mesures)}` : null,
+        `- État actuel : ${DISPO_PEI[p.disponibilite || 'disponible']}`,
+        precisions ? '' : null, precisions ? `Précisions : ${precisions}` : null, '',
+        `Le devis est à adresser à la Mairie de Pasly, 34 rue de l'Urmois, 02200 Pasly${ref ? `, en rappelant notre référence ${ref}` : ''}.`, '',
+        'Cordialement,', '', S.profil?.nom || '', 'Commune de Pasly'].filter(x => x !== null);
+      const objet = `Demande de devis – ${nom} – ${p.adresse || 'Pasly'} – Commune de Pasly`;
+      fermer();
+      if (ref){ toast('Suivi créé dans Travaux (devis demandé)'); recharger(); }
+      window.ouvrirMail(`mailto:${encodeURIComponent(dest)}?subject=${encodeURIComponent(objet)}&body=${encodeURIComponent(lignes.join('\n'))}`);
+    } catch (err){ toast(traduire(err), true); b.disabled = false; }
   },
 
   menuExportDeci(){
