@@ -2674,9 +2674,21 @@ async function vuePlus(){
       <select onchange="App.role('${u.id}', this.value)" ${u.id === p.id ? 'disabled' : ''} aria-label="Rôle">
         ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}
       </select>
+      ${u.id !== p.id ? `<button class="petit secondaire" onclick="App.renommerUtilisateur('${u.id}')">Nom</button>` : ''}
       ${S.activationOk && u.id !== p.id ? `<button class="petit ${u.actif === false ? 'secondaire' : 'danger'}" onclick="App.activerCompte('${u.id}', ${u.actif === false})">${u.actif === false ? 'Réactiver' : 'Désactiver'}</button>` : ''}</div>`).join('')}
     ${S.activationOk ? '<p class="aide">Un compte désactivé ne peut plus rien consulter ni modifier, même s’il est encore connecté. Son historique est conservé.</p>' : ''}
-    <p class="aide">Pour ajouter une personne : Supabase, Authentication, Users, « Add user ». Elle apparaît ici en lecture seule ; choisissez ensuite son rôle.</p>
+    <form onsubmit="App.creerUtilisateur(event)" style="margin-top:12px">
+      <h3 style="margin:0 0 6px">Nouvel utilisateur</h3>
+      <div class="deux"><label>Nom et prénom<input name="nom" required minlength="2" maxlength="80" placeholder="Jean Dupont"></label>
+        <label>Adresse e-mail<input name="email" type="email" required autocomplete="off" placeholder="jean.dupont@…"></label></div>
+      <label>Rôle<select name="role">
+        <option value="lecteur" selected>Lecture seule (agents : signalements dans Pasly Astreinte)</option>
+        <option value="contributeur">Contributeur</option>
+        <option value="admin">Administrateur</option>
+      </select></label>
+      <div class="boutons"><button class="principal" type="submit">Créer le compte</button></div>
+      <p class="aide" style="margin:0">Le compte est actif tout de suite. Un mot de passe provisoire s'affiche à la création : transmettez-le à la personne, qui le remplacera à sa première connexion à cette application.</p>
+    </form>
   </div>
   ${estAdmin() ? `<h2>Sauvegarde et journal</h2><div class="bloc pile">
     <button class="secondaire" onclick="App.exportDonnees()">Exporter les données (fichier JSON)</button>
@@ -6120,6 +6132,48 @@ const App = {
       if (!r?.length) await q(sb.from('parametres').insert({ cle:'renouvellement', valeur }));
       S.budget.params = { ...PARAMS_RENOUV, ...valeur }; toast('Seuils enregistrés'); b.disabled = false;
     } catch (err){ toast(traduire(err), true); b.disabled = false; }
+  },
+  async creerUtilisateur(ev){
+    ev.preventDefault();
+    if (!estAdmin()) return;
+    const f = new FormData(ev.target), b = ev.target.querySelector('button[type=submit]');
+    const corps = { nom:String(f.get('nom') || '').trim(), email:String(f.get('email') || '').trim(), role:String(f.get('role') || 'lecteur') };
+    b.disabled = true;
+    try {
+      const { data, error } = await sb.functions.invoke('creer-utilisateur', { body:corps });
+      if (error){
+        let m = error.message;
+        try { const j = await error.context?.json(); if (j?.erreur) m = j.erreur; } catch {}
+        throw new Error(/Failed to send|FunctionsFetchError|not found|404/i.test(m) ? "Service de création de comptes indisponible : réessayez dans un instant." : m);
+      }
+      if (!data?.ok) throw new Error(data?.erreur || 'Création impossible');
+      S.nouveauCompte = `Bonjour ${data.nom},\n\nVotre compte pour les applications de la mairie de Pasly est prêt.\n\nIdentifiant : ${data.email}\nMot de passe provisoire : ${data.motDePasse}\n\n`
+        + (data.role === 'lecteur' ? `Pour faire des signalements : installez Pasly Astreinte (https://f07303988-hub.github.io/Astreinte--lu/), puis « Agent : se connecter pour faire des signalements ».\n\n` : '')
+        + `Pensez à remplacer le mot de passe provisoire à votre première connexion à l'application des contrôles (https://f07303988-hub.github.io/controles-pasly/).`;
+      ouvrir(tete('Compte créé') + `
+        <p><b>${esc(data.nom)}</b> · ${esc(data.email)} · ${ROLES[data.role]}</p>
+        <p class="aide">Mot de passe provisoire, à transmettre à la personne (il ne sera plus affiché ensuite) :</p>
+        <p style="font-size:1.4rem;font-weight:700;letter-spacing:.06em;font-family:monospace;margin:6px 0 14px">${esc(data.motDePasse)}</p>
+        <div class="boutons"><button class="principal" onclick="App.copierNouveauCompte()">Copier le message à envoyer</button>
+        <button class="secondaire" onclick="App.fermer()">Fermer</button></div>`);
+      ev.target.reset(); b.disabled = false;
+      rendre();
+    } catch (err){ toast(traduire(err), true); b.disabled = false; }
+  },
+  async copierNouveauCompte(){
+    try { await navigator.clipboard.writeText(S.nouveauCompte || ''); toast('Message copié'); }
+    catch { prompt('Copiez le message :', S.nouveauCompte || ''); }
+  },
+  async renommerUtilisateur(id){
+    if (!estAdmin()) return;
+    const r = await sb.from('profils').select('nom').eq('id', id).maybeSingle();
+    const nom = prompt('Nom et prénom :', r.data?.nom || '');
+    if (!nom || !nom.trim()) return;
+    try {
+      const ok = await q(sb.from('profils').update({ nom:nom.trim().slice(0, 80) }).eq('id', id).select('id'));
+      if (!ok?.length) throw new Error('Modification refusée.');
+      toast('Nom enregistré'); rendre();
+    } catch (err){ toast(traduire(err), true); }
   },
   async role(id, role){
     try { await q(sb.from('profils').update({ role }).eq('id', id)); toast('Rôle modifié'); } catch { rendre(); }
