@@ -519,7 +519,7 @@ const attenteDevisEnt = x => intOuverte(x) && (x.statut === 'devis_demande' || !
 const dateRefInt = x => x.date_debut_reelle || x.date_prevue_debut || String(x.created_at || '').slice(0, 10);
 const nomProfil = id => { const u = S.profils.find(x => x.id === id); return u ? (u.nom || u.email) : null; };
 const responsables = () => S.profils.filter(u => ['admin','contributeur'].includes(u.role));
-const ROLES = { admin:'Administrateur', contributeur:'Contributeur', lecteur:'Lecture seule' };
+const ROLES = { admin:'Administrateur', contributeur:'Contributeur', lecteur:'Lecture seule', agent:'Agent (signalements uniquement)' };
 const TITRES = { retard:'En retard', planifier:'À planifier', bientot:'À prévoir', ok:'À jour' };
 const ORDRE = ['retard','planifier','bientot','ok'];
 const SECTIONS = { retard:'En retard', planifier:'Sans date : à planifier', bientot:'À prévoir (délai de rappel atteint)', ok:'À jour' };
@@ -791,6 +791,12 @@ async function apresConnexion(){
     Object.assign(S.profil, det[user.id] || { email:user.email });
   }
   document.body.classList.remove('deconnecte');
+  if (S.profil?.role === 'agent'){
+    $('#vue').innerHTML = `<p class="vide">Ce compte sert uniquement aux signalements dans l'application Pasly Astreinte : il n'a pas accès au suivi des bâtiments.</p>
+      <a class="principal" style="display:inline-block;margin:0 0 10px" href="https://f07303988-hub.github.io/Astreinte--lu/">Ouvrir Pasly Astreinte</a><br>
+      <button class="secondaire" onclick="App.deconnexion()">Se déconnecter</button>`;
+    return;
+  }
   if (!S.profil){
     $('#vue').innerHTML = `<p class="vide">Ce compte est désactivé ou n'a pas de profil : aucune donnée n'est accessible. Contactez l'administrateur de l'application.</p>
       <button class="secondaire" onclick="App.deconnexion()">Se déconnecter</button>`;
@@ -940,6 +946,19 @@ async function insererUneFois(table, ligne){
   if (v.error || !v.data) throw error;
 }
 /* R4 : e-mails et indicateurs des comptes via une fonction sécurisée (repli si la migration n'est pas faite) */
+function afficherIdentifiants(data, titre){
+  const astreinte = 'https://f07303988-hub.github.io/Astreinte--lu/', controles = 'https://f07303988-hub.github.io/controles-pasly/';
+  const signale = ['agent', 'lecteur'].includes(data.role);
+  S.nouveauCompte = `Bonjour ${data.nom},\n\n${titre === 'Compte créé' ? 'Votre compte pour les applications de la mairie de Pasly est prêt.' : 'Voici votre nouveau mot de passe pour les applications de la mairie de Pasly.'}\n\nIdentifiant : ${data.email}\nMot de passe : ${data.motDePasse}\n\n`
+    + (signale ? `Pour faire des signalements : installez Pasly Astreinte (${astreinte}), puis « Agent : se connecter pour faire des signalements ».` : '')
+    + (data.role !== 'agent' ? `${signale ? '\n\n' : ''}Application des contrôles : ${controles} (le mot de passe vous sera demandé une seule fois, puis vous en choisirez un nouveau).` : '');
+  ouvrir(tete(titre) + `
+    <p><b>${esc(data.nom)}</b> · ${esc(data.email)} · ${ROLES[data.role] || esc(data.role)}</p>
+    <p class="aide">Mot de passe à transmettre à la personne (il ne sera plus affiché ensuite) :</p>
+    <p style="font-size:1.4rem;font-weight:700;letter-spacing:.06em;font-family:monospace;margin:6px 0 14px">${esc(data.motDePasse)}</p>
+    <div class="boutons"><button class="principal" onclick="App.copierNouveauCompte()">Copier le message à envoyer</button>
+    <button class="secondaire" onclick="App.fermer()">Fermer</button></div>`);
+}
 async function detailsProfils(){
   let r = await sb.rpc('profils_detail');
   if (r.error && ['PGRST202','42883'].includes(r.error.code)) r = await sb.from('profils').select('id, email');
@@ -2674,7 +2693,8 @@ async function vuePlus(){
       <select onchange="App.role('${u.id}', this.value)" ${u.id === p.id ? 'disabled' : ''} aria-label="Rôle">
         ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}
       </select>
-      ${u.id !== p.id ? `<button class="petit secondaire" onclick="App.renommerUtilisateur('${u.id}')">Nom</button>` : ''}
+      ${u.id !== p.id ? `<button class="petit secondaire" onclick="App.renommerUtilisateur('${u.id}')">Nom</button>
+      <button class="petit secondaire" onclick="App.nouveauMdp('${u.id}')">Mot de passe</button>` : ''}
       ${S.activationOk && u.id !== p.id ? `<button class="petit ${u.actif === false ? 'secondaire' : 'danger'}" onclick="App.activerCompte('${u.id}', ${u.actif === false})">${u.actif === false ? 'Réactiver' : 'Désactiver'}</button>` : ''}</div>`).join('')}
     ${S.activationOk ? '<p class="aide">Un compte désactivé ne peut plus rien consulter ni modifier, même s’il est encore connecté. Son historique est conservé.</p>' : ''}
     <form onsubmit="App.creerUtilisateur(event)" style="margin-top:12px">
@@ -2682,12 +2702,13 @@ async function vuePlus(){
       <div class="deux"><label>Nom et prénom<input name="nom" required minlength="2" maxlength="80" placeholder="Jean Dupont"></label>
         <label>Adresse e-mail<input name="email" type="email" required autocomplete="off" placeholder="jean.dupont@…"></label></div>
       <label>Rôle<select name="role">
-        <option value="lecteur" selected>Lecture seule (agents : signalements dans Pasly Astreinte)</option>
+        <option value="agent" selected>Agent : signalements dans Pasly Astreinte uniquement</option>
+        <option value="lecteur">Lecture seule (contrôles) + signalements</option>
         <option value="contributeur">Contributeur</option>
         <option value="admin">Administrateur</option>
       </select></label>
       <div class="boutons"><button class="principal" type="submit">Créer le compte</button></div>
-      <p class="aide" style="margin:0">Le compte est actif tout de suite. Un mot de passe provisoire s'affiche à la création : transmettez-le à la personne, qui le remplacera à sa première connexion à cette application.</p>
+      <p class="aide" style="margin:0">Le compte est actif tout de suite. Un mot de passe s'affiche à la création : transmettez-le à la personne. Un agent n'a pas accès à cette application ; en cas d'oubli, utilisez « Mot de passe » sur sa ligne.</p>
     </form>
   </div>
   ${estAdmin() ? `<h2>Sauvegarde et journal</h2><div class="bloc pile">
@@ -6137,7 +6158,7 @@ const App = {
     ev.preventDefault();
     if (!estAdmin()) return;
     const f = new FormData(ev.target), b = ev.target.querySelector('button[type=submit]');
-    const corps = { nom:String(f.get('nom') || '').trim(), email:String(f.get('email') || '').trim(), role:String(f.get('role') || 'lecteur') };
+    const corps = { nom:String(f.get('nom') || '').trim(), email:String(f.get('email') || '').trim(), role:String(f.get('role') || 'agent') };
     b.disabled = true;
     try {
       const { data, error } = await sb.functions.invoke('creer-utilisateur', { body:corps });
@@ -6147,18 +6168,20 @@ const App = {
         throw new Error(/Failed to send|FunctionsFetchError|not found|404/i.test(m) ? "Service de création de comptes indisponible : réessayez dans un instant." : m);
       }
       if (!data?.ok) throw new Error(data?.erreur || 'Création impossible');
-      S.nouveauCompte = `Bonjour ${data.nom},\n\nVotre compte pour les applications de la mairie de Pasly est prêt.\n\nIdentifiant : ${data.email}\nMot de passe provisoire : ${data.motDePasse}\n\n`
-        + (data.role === 'lecteur' ? `Pour faire des signalements : installez Pasly Astreinte (https://f07303988-hub.github.io/Astreinte--lu/), puis « Agent : se connecter pour faire des signalements ».\n\n` : '')
-        + `Pensez à remplacer le mot de passe provisoire à votre première connexion à l'application des contrôles (https://f07303988-hub.github.io/controles-pasly/).`;
-      ouvrir(tete('Compte créé') + `
-        <p><b>${esc(data.nom)}</b> · ${esc(data.email)} · ${ROLES[data.role]}</p>
-        <p class="aide">Mot de passe provisoire, à transmettre à la personne (il ne sera plus affiché ensuite) :</p>
-        <p style="font-size:1.4rem;font-weight:700;letter-spacing:.06em;font-family:monospace;margin:6px 0 14px">${esc(data.motDePasse)}</p>
-        <div class="boutons"><button class="principal" onclick="App.copierNouveauCompte()">Copier le message à envoyer</button>
-        <button class="secondaire" onclick="App.fermer()">Fermer</button></div>`);
+      afficherIdentifiants(data, 'Compte créé');
       ev.target.reset(); b.disabled = false;
       rendre();
     } catch (err){ toast(traduire(err), true); b.disabled = false; }
+  },
+  async nouveauMdp(id){
+    if (!estAdmin()) return;
+    if (!confirm("Donner un nouveau mot de passe à cette personne ? L'ancien ne fonctionnera plus.")) return;
+    try {
+      const { data, error } = await sb.functions.invoke('creer-utilisateur', { body:{ action:'mot_de_passe', id } });
+      if (error){ let m = error.message; try { const j = await error.context?.json(); if (j?.erreur) m = j.erreur; } catch {} throw new Error(m); }
+      if (!data?.ok) throw new Error(data?.erreur || 'Modification impossible');
+      afficherIdentifiants(data, 'Nouveau mot de passe');
+    } catch (err){ toast(traduire(err), true); }
   },
   async copierNouveauCompte(){
     try { await navigator.clipboard.writeText(S.nouveauCompte || ''); toast('Message copié'); }
