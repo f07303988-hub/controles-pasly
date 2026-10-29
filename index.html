@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="Contrôles">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <!-- F1 : seules ces origines sont autorisées (Supabase du projet, bibliothèque Supabase sur jsDelivr) -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https://*.supabase.co https://cdn.jsdelivr.net https://tile.openstreetmap.org https://data.geopf.fr; connect-src 'self' https://*.supabase.co wss://*.supabase.co; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.sheetjs.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https://*.supabase.co https://cdn.jsdelivr.net https://tile.openstreetmap.org https://data.geopf.fr; connect-src 'self' https://*.supabase.co wss://*.supabase.co; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <!-- I4 : version figée de la bibliothèque. Si elle ne se charge pas, repli sur la dernière version 2 (signalé aux administrateurs). -->
 <script>window.SUPABASE_JS_VERSION = '2.45.4';</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" crossorigin="anonymous"
@@ -3315,7 +3315,7 @@ function lireCSV(txt){
 }
 let xlsxP = null;
 const chargerXLSX = () => window.XLSX ? Promise.resolve() : xlsxP ??= new Promise((res, rej) => {
-  const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+  const s = document.createElement('script'); s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
   s.onload = () => res(); s.onerror = () => { xlsxP = null; rej(new Error('Lecture des fichiers Excel indisponible (pas de réseau). Enregistrez le fichier en CSV et réessayez.')); };
   document.head.appendChild(s);
 });
