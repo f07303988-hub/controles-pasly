@@ -753,14 +753,29 @@ async function demarrer(){
   if (session) await apresConnexion(); else afficherConnexion();
 }
 
+/* Comptes déjà utilisés sur cet appareil (seulement les adresses, jamais les mots de passe) */
+const CLE_COMPTES = 'pasly-comptes-utilises';
+function comptesUtilises(){
+  try { const l = JSON.parse(localStorage.getItem(CLE_COMPTES) || '[]'); return Array.isArray(l) ? l.filter(x => typeof x === 'string' && x.includes('@')).slice(0, 10) : []; }
+  catch { return []; }
+}
+function memoriserCompte(email){
+  try { localStorage.setItem(CLE_COMPTES, JSON.stringify([email, ...comptesUtilises().filter(x => x !== email)].slice(0, 10))); } catch {}
+}
 function afficherConnexion(){
   document.body.classList.add('deconnecte');
   S.profil = null;
+  const comptes = comptesUtilises();
   $('#vue').innerHTML = `<section class="connexion">
     <h1>Contrôles périodiques</h1>
     <p>Commune de Pasly. Connectez-vous avec le compte fourni par la mairie.</p>
     <form onsubmit="App.connexion(event)">
-      <label>Adresse e-mail<input name="email" type="email" required autocomplete="username"></label>
+      ${comptes.length ? `<label>Compte<select onchange="App.choisirCompte(this)">
+        ${comptes.map((c, i) => `<option value="${esc(c)}" ${i === 0 ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        <option value="__autre">Autre compte…</option>
+        <option value="__oublier">Effacer cette liste</option>
+      </select></label>` : ''}
+      <label>Adresse e-mail<input name="email" type="email" required autocomplete="username" value="${esc(comptes[0] || '')}"></label>
       <label>Mot de passe<input name="mdp" type="password" required autocomplete="current-password"></label>
       <button class="principal" type="submit">Se connecter</button>
     </form>
@@ -3876,8 +3891,19 @@ const App = {
     b.disabled = true;
     try {
       await q(sb.auth.signInWithPassword({ email:f.get('email').trim(), password:f.get('mdp') }));
+      memoriserCompte(f.get('email').trim().toLowerCase());
       await apresConnexion();
     } catch {} finally { b.disabled = false; }
+  },
+  choisirCompte(sel){
+    const f = sel.form, v = sel.value;
+    if (v === '__oublier'){
+      if (confirm('Effacer la liste des comptes utilisés sur cet appareil ?')){ try { localStorage.removeItem(CLE_COMPTES); } catch {} afficherConnexion(); }
+      else sel.value = '';
+      return;
+    }
+    f.email.value = v === '__autre' ? '' : v;
+    (v === '__autre' || !v ? f.email : f.mdp).focus();
   },
   async oubli(){
     const email = prompt('Adresse e-mail du compte :');
