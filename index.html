@@ -2697,6 +2697,14 @@ async function vuePlus(){
   if (rp.error) rp = await sb.from('profils').select('id, nom, role, created_at').order('nom');   // avant migration
   if (rp.error){ toast(traduire(rp.error), true); throw rp.error; }
   const profils = rp.data.map(u => ({ ...u, ...(det[u.id] || {}) }));
+  // Dernière activité (connexion ou utilisation d'une appli) : comptes inactifs depuis 6 mois signalés
+  const act = await sb.rpc('comptes_activite');
+  const activite = act.error ? null : Object.fromEntries((act.data || []).map(x => [x.id, x.derniere_activite]));
+  const SIX_MOIS = 182 * 86400000;
+  // Sans aucune connexion, on compte depuis la création du compte (un compte tout neuf n'est pas signalé)
+  const inactif = u => activite && u.actif !== false && u.id !== p.id && Date.now() - new Date(activite[u.id] || u.created_at || 0).getTime() > SIX_MOIS;
+  const nbInactifs = profils.filter(inactif).length;
+  const derniere = u => !activite ? '' : activite[u.id] ? ` · actif le ${new Date(activite[u.id]).toLocaleDateString('fr-FR')}` : ' · jamais connecté';
   h += `<h2>Sites</h2><div class="bloc">
     ${S.sites.map(s => { const n = S.equipements.filter(e => e.site_id === s.id).length;
       return `<div class="ligne-admin"><div><b>${esc(s.nom)}</b><small>${n} équipement(s)${siteActif(s) ? '' : ', archivé'}</small></div>
@@ -2710,7 +2718,8 @@ async function vuePlus(){
       <button class="principal" type="submit">Ajouter</button>
     </form></div>
   <h2>Utilisateurs</h2><div class="bloc">
-    ${profils.map(u => `<div class="ligne-admin" ${u.actif === false ? 'style="opacity:.6"' : ''}><div><b>${esc(u.nom || u.email)}</b><small>${esc(u.email)}${u.actif === false ? ' · <b>désactivé</b>' : ''}</small></div>
+    ${nbInactifs ? `<p class="alerte" style="margin:0 0 10px;font-weight:700">⚠️ ${nbInactifs} compte${nbInactifs > 1 ? 's' : ''} sans activité depuis plus de 6 mois (marqué${nbInactifs > 1 ? 's' : ''} ci-dessous). ${nbInactifs > 1 ? 'Désactivez ceux des personnes parties' : "S'il s'agit d'une personne partie, désactivez son compte"} : l'historique est conservé.</p>` : ''}
+    ${profils.map(u => `<div class="ligne-admin" ${u.actif === false ? 'style="opacity:.6"' : ''}><div><b>${inactif(u) ? '⚠️ ' : ''}${esc(u.nom || u.email)}</b><small>${esc(u.email)}${u.actif === false ? ' · <b>désactivé</b>' : esc(derniere(u))}</small></div>
       <select onchange="App.role('${u.id}', this.value)" ${u.id === p.id ? 'disabled' : ''} aria-label="Rôle">
         ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}
       </select>
