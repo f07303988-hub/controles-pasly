@@ -3816,7 +3816,7 @@ const AppAst = {
         `Signalement d'astreinte ${x.numero} (${CAT_AST[x.categorie] || x.categorie}, ${URG_AST[x.urgence] || x.urgence}), validé par ${S.profil?.nom || S.profil?.email || 'la mairie'}.`].filter(Boolean).join('\n');
       const ligne = { id:incId, site_id:f.get('site_id'), equipement_id:vide(f.get('equipement_id')), titre:f.get('titre').trim(), description:desc,
         categorie:f.get('categorie'), priorite:f.get('priorite'), statut:st, date_signalement:String(x.cree_le).slice(0, 10),
-        signale_par:d.reporterName || d.createdBy || null, ...(st === 'resolu' ? { date_resolution:aujourdhui() } : {}) };
+        signale_par:d.createdBy || null, ...(st === 'resolu' ? { date_resolution:aujourdhui() } : {}) };
       const ins = await sb.from('incidents').insert(ligne);
       if (ins.error && !(await verifierIncident(incId).catch(() => null))) throw ins.error;
       let k = 0;
