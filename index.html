@@ -6270,6 +6270,29 @@ majReseau();
 if (PANNES.actif) $('#bandeauTest').hidden = false;
 if (window.__supabaseRepli) $('#bandeauBiblio').hidden = false;
 document.addEventListener('visibilitychange', () => { if (!document.hidden && S.profil && $('#modal').hidden) recharger(); });
+/* Signalements d'astreinte en direct : vérification toutes les 30 secondes tant que l'application est à l'écran */
+let astConnus = null, astEnCours = false;
+setInterval(async () => {
+  if (astEnCours || document.hidden || !S.profil || !navigator.onLine || !peutSaisir() || S.ast.absent) return;
+  astEnCours = true;
+  try {
+    const empreinte = () => S.ast.liste.map(x => x.uuid + '|' + x.tri + '|' + x.statut + '|' + x.recu_le).join();
+    astConnus ??= new Set(S.ast.liste.map(x => x.uuid));
+    const avant = empreinte();
+    await chargerAstreinte();
+    if (empreinte() === avant) return;
+    const nouveaux = S.ast.liste.filter(x => x.tri === 'a_valider' && !astConnus.has(x.uuid));
+    S.ast.liste.forEach(x => astConnus.add(x.uuid));
+    if (nouveaux.length){
+      const urg = nouveaux.some(x => ['IMMEDIATE', 'URGENT'].includes(x.urgence));
+      toast(`${urg ? '🚨 ' : ''}${nouveaux.length > 1 ? nouveaux.length + ' nouveaux signalements' : 'Nouveau signalement'} d'astreinte à valider`, urg);
+    }
+    // Mise à jour de l'écran seulement s'il montre ces signalements et qu'aucune saisie n'est en cours
+    const saisie = !$('#modal').hidden || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+    const concerne = (S.vue === 'incidents' && S.sousVue === 'astreinte') || S.vue === 'accueil';
+    if (concerne && !saisie){ const y = window.scrollY; await rendre(); window.scrollTo(0, y); }
+  } catch {} finally { astEnCours = false; }
+}, 30000);
 demarrer();
 </script>
 </body>

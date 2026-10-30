@@ -3,7 +3,7 @@
    - Page : réseau d'abord (les mises à jour arrivent normalement), copie locale si pas de réseau.
    - Bibliothèque Supabase figée et icônes : copie locale.
    - Données Supabase : JAMAIS mises en cache par ce fichier. */
-const CACHE = 'pasly-v1';
+const CACHE = 'pasly-v2';
 const BIBLIO = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
 const FICHIERS = ['./', './index.html', './apple-touch-icon.png', './favicon.png', BIBLIO];
 
