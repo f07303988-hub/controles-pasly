@@ -962,6 +962,11 @@ async function insererUneFois(table, ligne){
   if (v.error || !v.data) throw error;
 }
 /* R4 : e-mails et indicateurs des comptes via une fonction sécurisée (repli si la migration n'est pas faite) */
+async function enteteSession(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if (!session) throw new Error('Session expirée : reconnectez-vous.');
+  return { Authorization:'Bearer ' + session.access_token };
+}
 function afficherIdentifiants(data, titre){
   const astreinte = 'https://f07303988-hub.github.io/Astreinte--lu/', controles = 'https://f07303988-hub.github.io/controles-pasly/';
   const signale = ['agent', 'lecteur'].includes(data.role);
@@ -6188,7 +6193,7 @@ const App = {
     const corps = { nom:String(f.get('nom') || '').trim(), email:String(f.get('email') || '').trim(), role:String(f.get('role') || 'agent') };
     b.disabled = true;
     try {
-      const { data, error } = await sb.functions.invoke('creer-utilisateur', { body:corps });
+      const { data, error } = await sb.functions.invoke('creer-utilisateur', { headers:await enteteSession(), body:corps });
       if (error){
         let m = error.message;
         try { const j = await error.context?.json(); if (j?.erreur) m = j.erreur; } catch {}
@@ -6204,7 +6209,7 @@ const App = {
     if (!estAdmin()) return;
     if (!confirm("Donner un nouveau mot de passe à cette personne ? L'ancien ne fonctionnera plus.")) return;
     try {
-      const { data, error } = await sb.functions.invoke('creer-utilisateur', { body:{ action:'mot_de_passe', id } });
+      const { data, error } = await sb.functions.invoke('creer-utilisateur', { headers:await enteteSession(), body:{ action:'mot_de_passe', id } });
       if (error){ let m = error.message; try { const j = await error.context?.json(); if (j?.erreur) m = j.erreur; } catch {} throw new Error(m); }
       if (!data?.ok) throw new Error(data?.erreur || 'Modification impossible');
       afficherIdentifiants(data, 'Nouveau mot de passe');
