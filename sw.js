@@ -3,9 +3,9 @@
    - Page : réseau d'abord (les mises à jour arrivent normalement), copie locale si pas de réseau.
    - Bibliothèque Supabase figée et icônes : copie locale.
    - Données Supabase : JAMAIS mises en cache par ce fichier. */
-const CACHE = 'pasly-v2';
+const CACHE = 'pasly-v3';
 const BIBLIO = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
-const FICHIERS = ['./', './index.html', './apple-touch-icon.png', './favicon.png', BIBLIO];
+const FICHIERS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png', './favicon.png', BIBLIO];
 
 self.addEventListener('install', ev => {
   ev.waitUntil(caches.open(CACHE).then(c => Promise.allSettled(FICHIERS.map(u => c.add(new Request(u, { cache:'reload' }))))));
