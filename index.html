@@ -387,6 +387,11 @@ a.bouton-lien{display:inline-flex;align-items:center;text-decoration:none}
 .mesures-pei details label.case{margin-top:8px}
 .nb-ast{display:inline-block;background:var(--retard);color:#fff;border-radius:9px;font-size:.7rem;padding:0 6px;line-height:17px;margin-left:2px}
 .segments button{padding:0 4px}
+.rc-ligne{display:flex;gap:6px;align-items:center;margin:0 0 6px}
+.rc-ligne input{min-width:0}
+.rc-choix{display:flex;flex-wrap:wrap;gap:4px 14px}
+.rc-choix label{display:flex;align-items:center;gap:4px;font-weight:400;font-size:.9rem;margin:0}
+.rc-choix input{width:auto;margin:0}
 </style>
 </head>
 <body class="deconnecte">
@@ -967,6 +972,108 @@ async function enteteSession(){
   if (!session) throw new Error('Session expirée : reconnectez-vous.');
   return { Authorization:'Bearer ' + session.access_token };
 }
+/* ---------- Réglages communs du carnet d'astreinte (Pasly Astreinte) ----------
+   Mêmes données que l'Administration des téléphones (parametres › astreinte_config) :
+   chaque réglage est daté, la modification la plus récente l'emporte sur tous les téléphones. */
+const RC_CLES = ['communeName', 'mairieEmail', 'municipalContacts', 'categories', 'consignes'];
+const RC_NATIONAUX = [
+  { id:'pompiers', emoji:'🚒', name:'Pompiers (18)' }, { id:'police', emoji:'🚓', name:'Police / Gendarmerie (17)' },
+  { id:'samu', emoji:'🚑', name:'SAMU (15)' }, { id:'urgence112', emoji:'🆘', name:'Urgence européenne (112)' },
+];
+// Valeurs par défaut du carnet (utilisées tant qu'aucun téléphone n'a envoyé ses réglages)
+const RC_DEFAUTS = {
+  communeName:'Pasly', mairieEmail:'',
+  categories:[
+    {id:'voirie', emoji:'🚧', label:'Voirie', contactIds:['services_techniques','mairie']},
+    {id:'eclairage', emoji:'💡', label:'Éclairage', contactIds:['eclairage','mairie']},
+    {id:'eau', emoji:'💧', label:'Eau / Assainissement', contactIds:['suez_urgence','eau','assainissement','mairie']},
+    {id:'arbre', emoji:'🌳', label:'Arbre / Espaces verts', contactIds:['services_techniques','espaces_verts','pompiers']},
+    {id:'batiment', emoji:'🏠', label:'Bâtiment communal', contactIds:['services_techniques','mairie']},
+    {id:'stade', emoji:'⚽', label:'Stade / Équipement', contactIds:['services_techniques','mairie']},
+    {id:'incendie', emoji:'🔥', label:'Incendie / Sinistre', contactIds:['pompiers','urgence112','mairie','suez_urgence']},
+    {id:'danger', emoji:'⚠️', label:'Danger', contactIds:['police','pompiers','services_techniques']},
+    {id:'proprete', emoji:'🗑️', label:'Propreté / Dépôt', contactIds:['services_techniques','mairie']},
+    {id:'stationnement', emoji:'🚗', label:'Stationnement', contactIds:['police','mairie']},
+    {id:'inondation', emoji:'🌧️', label:'Inondation / Intempéries', contactIds:['services_techniques','pompiers','mairie','suez_urgence']},
+    {id:'autre', emoji:'❓', label:'Autre', contactIds:['mairie']},
+  ],
+  municipalContacts:[
+    {id:'mairie', emoji:'🏛️', name:'Mairie', phone:''}, {id:'services_techniques', emoji:'🔧', name:'Services techniques', phone:''},
+    {id:'eau', emoji:'💧', name:'Eau', phone:''}, {id:'suez_urgence', emoji:'🚰', name:'Suez Eau – urgence réseau (24 h/24)', phone:'0977 401 120'},
+    {id:'assainissement', emoji:'🚽', name:'Assainissement', phone:''}, {id:'eclairage', emoji:'💡', name:'Éclairage public', phone:''},
+    {id:'electricite', emoji:'⚡', name:'Électricité', phone:''}, {id:'gaz', emoji:'🔥', name:'Gaz', phone:''},
+    {id:'espaces_verts', emoji:'🌳', name:'Espaces verts', phone:''}, {id:'entreprises_astreinte', emoji:'🔧', name:"Entreprises d'astreinte", phone:''},
+  ],
+  consignes:"En cas de danger immédiat : appeler les services d'urgence (18 / 17 / 112).\n\nPhotographier systématiquement le problème.\n\nNoter l'heure et le lieu.\n\nInformer le responsable selon la procédure communale.",
+};
+const rcCopie = x => JSON.parse(JSON.stringify(x));
+const rcIdent = (texte, pris) => {
+  const base = String(texte || 'element').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30) || 'element';
+  let id = base, n = 2; while (pris.has(id)) id = `${base}_${n++}`.slice(0, 40);
+  return id;
+};
+function rcNettoyer(r){
+  const txt = (x, max) => String(x ?? '').trim().slice(0, max);
+  const emoji = x => txt(x, 8).replace(/[<>"'&`]/g, '') || '•';
+  const contacts = r.municipalContacts.filter(c => txt(c.name, 80)).map(c => ({ id:c.id, emoji:emoji(c.emoji), name:txt(c.name, 80), phone:txt(c.phone, 30).replace(/[^0-9+ ().-]/g, '') }));
+  const valides = new Set([...RC_NATIONAUX.map(c => c.id), ...contacts.map(c => c.id)]);
+  const categories = r.categories.filter(c => txt(c.label, 80)).map(c => ({ id:c.id, emoji:emoji(c.emoji), label:txt(c.label, 80), contactIds:(c.contactIds || []).filter(id => valides.has(id)).slice(0, 20) }));
+  const email = txt(r.mairieEmail, 120);
+  if (email && !/^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(email)) throw new Error("Adresse e-mail de la mairie invalide.");
+  if (!categories.length) throw new Error('Il faut au moins une catégorie.');
+  if (!txt(r.communeName, 100)) throw new Error('Indiquez le nom de la commune.');
+  return { communeName:txt(r.communeName, 100), mairieEmail:email, municipalContacts:contacts, categories, consignes:String(r.consignes ?? '').slice(0, 20000) };
+}
+function rendreRC(){
+  const r = S.rc, tous = [...RC_NATIONAUX, ...r.municipalContacts.filter(c => c.name.trim())];
+  ouvrir(tete("Réglages du carnet d'astreinte") + `
+    ${S.rcVide ? `<p class="alerte" style="margin:0 0 12px">Aucun téléphone n'a encore envoyé ses réglages : ce sont les valeurs par défaut du carnet qui s'affichent. Si le carnet a déjà été personnalisé sur un téléphone, ouvrez d'abord Pasly Astreinte sur ce téléphone (relié à la mairie), puis revenez ici.</p>` : ''}
+    <p class="aide" style="margin:0 0 12px">Ces réglages sont communs à tous les téléphones. Ils les reçoivent à leur prochaine synchronisation (2 minutes si l'appli est ouverte).</p>
+    <div id="rcForm">
+    <h3 style="margin:8px 0 6px">Commune</h3>
+    <div class="deux"><label>Nom de la commune<input data-f="communeName" value="${esc(r.communeName)}" maxlength="100"></label>
+      <label>E-mail de la mairie (bouton « Informer la mairie »)<input data-f="mairieEmail" type="email" value="${esc(r.mairieEmail)}" maxlength="120"></label></div>
+
+    <h3 style="margin:16px 0 6px">Numéros utiles</h3>
+    <p class="aide" style="margin:0 0 6px">Toujours présents, non modifiables : ${RC_NATIONAUX.map(c => `${c.emoji} ${esc(c.name)}`).join(' · ')}</p>
+    ${r.municipalContacts.map((c, i) => `<div class="rc-ligne">
+      <input data-l="municipalContacts" data-i="${i}" data-f="emoji" value="${esc(c.emoji)}" maxlength="8" aria-label="Icône" style="width:3.2em;text-align:center">
+      <input data-l="municipalContacts" data-i="${i}" data-f="name" value="${esc(c.name)}" maxlength="80" placeholder="Nom" aria-label="Nom" style="flex:2">
+      <input data-l="municipalContacts" data-i="${i}" data-f="phone" value="${esc(c.phone)}" maxlength="30" placeholder="Téléphone" inputmode="tel" aria-label="Téléphone" style="flex:1">
+      <button type="button" class="petit danger" onclick="App.rcRetirer('municipalContacts', ${i})" aria-label="Retirer">✕</button></div>`).join('')}
+    <button type="button" class="petit secondaire" onclick="App.rcAjouter('municipalContacts')">+ Ajouter un numéro</button>
+
+    <h3 style="margin:16px 0 6px">Catégories d'incident</h3>
+    ${r.categories.map((c, i) => `<div class="bloc" style="padding:10px;margin:0 0 8px">
+      <div class="rc-ligne" style="margin:0">
+        <input data-l="categories" data-i="${i}" data-f="emoji" value="${esc(c.emoji)}" maxlength="8" aria-label="Icône" style="width:3.2em;text-align:center">
+        <input data-l="categories" data-i="${i}" data-f="label" value="${esc(c.label)}" maxlength="80" placeholder="Nom de la catégorie" aria-label="Nom" style="flex:1">
+        <button type="button" class="petit danger" onclick="App.rcRetirer('categories', ${i})" aria-label="Retirer">✕</button></div>
+      <p class="aide" style="margin:6px 0 4px">Numéros proposés pour cette catégorie :</p>
+      <div class="rc-choix">${tous.map(t => `<label><input type="checkbox" data-cat="${i}" data-contact="${esc(t.id)}" ${(c.contactIds || []).includes(t.id) ? 'checked' : ''}> ${esc(t.emoji)} ${esc(t.name)}</label>`).join('')}</div></div>`).join('')}
+    <button type="button" class="petit secondaire" onclick="App.rcAjouter('categories')">+ Ajouter une catégorie</button>
+
+    <h3 style="margin:16px 0 6px">Consignes d'astreinte</h3>
+    <p class="aide" style="margin:0 0 6px">Une ligne vide sépare deux paragraphes.</p>
+    <textarea data-f="consignes" rows="9" style="width:100%">${esc(r.consignes)}</textarea>
+    </div>
+    <div class="boutons" style="margin-top:14px"><button class="principal" id="rcEnregistrer" onclick="App.rcEnregistrer()">Enregistrer</button>
+      <button class="secondaire" onclick="App.fermer()">Annuler</button></div>`);
+  const f = $('#rcForm');
+  f.addEventListener('input', e => {
+    const t = e.target, champ = t.dataset.f;
+    if (!champ) return;
+    if (t.dataset.l) S.rc[t.dataset.l][Number(t.dataset.i)][champ] = t.value;
+    else S.rc[champ] = t.value;
+  });
+  f.addEventListener('change', e => {
+    const t = e.target;
+    if (t.dataset.cat === undefined) return;
+    const c = S.rc.categories[Number(t.dataset.cat)], id = t.dataset.contact;
+    c.contactIds = t.checked ? [...new Set([...(c.contactIds || []), id])] : (c.contactIds || []).filter(x => x !== id);
+  });
+}
+
 function afficherIdentifiants(data, titre){
   const astreinte = 'https://f07303988-hub.github.io/Astreinte--lu/', controles = 'https://f07303988-hub.github.io/controles-pasly/';
   const signale = ['agent', 'lecteur'].includes(data.role);
@@ -2724,6 +2831,10 @@ async function vuePlus(){
       <label>Nouveau site<input name="nom" required placeholder="Église, stade, atelier…"></label>
       <button class="principal" type="submit">Ajouter</button>
     </form></div>
+  <h2>Carnet d'astreinte</h2><div class="bloc pile">
+    <button class="secondaire" onclick="App.reglagesCarnet()">Réglages communs du carnet d'astreinte</button>
+    <p class="aide" style="margin:0">Commune, numéros utiles, catégories d'incident et consignes de Pasly Astreinte, modifiables ici au clavier. Tous les téléphones les reçoivent automatiquement.</p>
+  </div>
   <h2>Utilisateurs</h2><div class="bloc">
     ${nbInactifs ? `<p class="alerte" style="margin:0 0 10px;font-weight:700">⚠️ ${nbInactifs} compte${nbInactifs > 1 ? 's' : ''} sans activité depuis plus de 6 mois (marqué${nbInactifs > 1 ? 's' : ''} ci-dessous). ${nbInactifs > 1 ? 'Désactivez ceux des personnes parties' : "S'il s'agit d'une personne partie, désactivez son compte"} : l'historique est conservé.</p>` : ''}
     ${profils.map(u => `<div class="ligne-admin" ${u.actif === false ? 'style="opacity:.6"' : ''}><div><b>${inactif(u) ? '⚠️ ' : ''}${esc(u.nom || u.email)}</b><small>${esc(u.email)}${u.actif === false ? ' · <b>désactivé</b>' : esc(derniere(u))}${listeAppareils(u)}</small></div>
@@ -6231,6 +6342,52 @@ const App = {
       if (!data?.ok) throw new Error(data?.erreur || 'Modification impossible');
       afficherIdentifiants(data, 'Nouveau mot de passe');
     } catch (err){ toast(traduire(err), true); }
+  },
+  async reglagesCarnet(){
+    if (!estAdmin()) return;
+    try {
+      const r = await q(sb.from('parametres').select('valeur').eq('cle', 'astreinte_config').maybeSingle());
+      const v = (r && r.valeur && typeof r.valeur === 'object') ? r.valeur : {};
+      S.rcVide = !RC_CLES.some(k => v[k] && 'v' in v[k]);
+      S.rc = {};
+      for (const k of RC_CLES) S.rc[k] = rcCopie(v[k] && 'v' in v[k] ? v[k].v : RC_DEFAUTS[k]);
+      if (!Array.isArray(S.rc.categories)) S.rc.categories = rcCopie(RC_DEFAUTS.categories);
+      if (!Array.isArray(S.rc.municipalContacts)) S.rc.municipalContacts = rcCopie(RC_DEFAUTS.municipalContacts);
+      S.rcOrig = rcCopie(S.rc);
+      rendreRC();
+    } catch (err){ toast(traduire(err), true); }
+  },
+  rcAjouter(liste){
+    const pris = new Set([...S.rc.categories.map(c => c.id), ...S.rc.municipalContacts.map(c => c.id), ...RC_NATIONAUX.map(c => c.id)]);
+    if (liste === 'categories') S.rc.categories.push({ id:rcIdent('categorie', pris), emoji:'📌', label:'', contactIds:['mairie'].filter(x => pris.has(x)) });
+    else S.rc.municipalContacts.push({ id:rcIdent('contact', pris), emoji:'📞', name:'', phone:'' });
+    const y = $('.feuille')?.scrollTop; rendreRC(); if ($('.feuille')) $('.feuille').scrollTop = y;
+  },
+  rcRetirer(liste, i){
+    const el = S.rc[liste][i];
+    const nom = el.label || el.name || 'cet élément';
+    if (!confirm(liste === 'categories'
+      ? `Retirer la catégorie « ${nom} » ? Les incidents déjà classés dans cette catégorie restent dans l'historique (affichés « ❓ »).`
+      : `Retirer le numéro « ${nom} » ? Il disparaîtra aussi des catégories qui le proposaient.`)) return;
+    S.rc[liste].splice(i, 1);
+    const y = $('.feuille')?.scrollTop; rendreRC(); if ($('.feuille')) $('.feuille').scrollTop = y;
+  },
+  async rcEnregistrer(){
+    if (!estAdmin()) return;
+    const b = $('#rcEnregistrer');
+    try {
+      const propre = rcNettoyer(S.rc), avant = rcNettoyer(S.rcOrig);
+      const changees = RC_CLES.filter(k => S.rcVide || JSON.stringify(propre[k]) !== JSON.stringify(avant[k]));
+      if (!changees.length){ toast('Aucune modification'); return fermer(); }
+      b.disabled = true;
+      const r = await q(sb.from('parametres').select('valeur').eq('cle', 'astreinte_config').maybeSingle());
+      const valeur = (r && r.valeur && typeof r.valeur === 'object') ? { ...r.valeur } : {};
+      const ts = new Date().toISOString(), par = S.profil?.nom || S.profil?.email || 'mairie';
+      for (const k of changees) valeur[k] = { v:propre[k], ts, par };
+      const w = await q(sb.from('parametres').update({ valeur }).eq('cle', 'astreinte_config').select('cle'));
+      if (!w?.length) throw new Error("Réglages non enregistrés : le carnet d'astreinte n'est pas encore installé sur le serveur.");
+      fermer(); toast(`Réglages enregistrés (${changees.length}) : les téléphones les recevront à leur prochaine synchronisation`);
+    } catch (err){ toast(traduire(err), true); if (b) b.disabled = false; }
   },
   async telephonePerdu(id){
     if (!estAdmin()) return;
