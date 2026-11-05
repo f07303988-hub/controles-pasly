@@ -35,6 +35,29 @@ Deno.serve(async (req) => {
 
     const b = await req.json().catch(() => ({}));
 
+    // Appareils qui reçoivent les alertes d'astreinte, par compte
+    if (b.action === "appareils") {
+      const { data, error } = await admin.from("astreinte_abonnements").select("compte, appareil, vu_le").order("vu_le", { ascending: false });
+      if (error) return rep({ ok: true, appareils: [] });          // module d'alertes pas installé
+      return rep({ ok: true, appareils: data || [] });
+    }
+
+    // Téléphone perdu ou volé : tous les appareils du compte déconnectés, nouveau mot de passe
+    if (b.action === "telephone_perdu") {
+      const id = String(b.id || "");
+      if (!/^[0-9a-f-]{36}$/i.test(id)) return rep({ erreur: "Compte inconnu" }, 400);
+      if (id === u.user.id) return rep({ erreur: "Pour votre propre compte : changez votre mot de passe dans Compte, puis déconnectez-vous" }, 400);
+      const { data: cible } = await admin.from("profils").select("email, nom, role").eq("id", id).maybeSingle();
+      if (!cible) return rep({ erreur: "Compte inconnu" }, 404);
+      const mdp = motDePasse();
+      const { error: em } = await admin.auth.admin.updateUserById(id, { password: mdp });
+      if (em) return rep({ erreur: "Mot de passe non modifié : " + em.message }, 500);
+      const rv = await admin.rpc("revoquer_sessions", { p_compte: id });
+      if (rv.error) return rep({ erreur: /revoquer_sessions|PGRST202|42883/.test(rv.error.message) ? "Mot de passe changé, mais déconnexion impossible : exécutez migration-telephone-perdu.sql dans Supabase" : "Mot de passe changé, mais déconnexion impossible : " + rv.error.message }, 500);
+      await admin.from("profils").update({ doit_changer_mdp: cible.role !== "agent" }).eq("id", id);
+      return rep({ ok: true, id, email: cible.email, nom: cible.nom, role: cible.role, motDePasse: mdp, sessions: rv.data ?? 0 });
+    }
+
     // Nouveau mot de passe pour un compte existant (oubli, agent sans accès à l'application des contrôles)
     if (b.action === "mot_de_passe") {
       const id = String(b.id || "");

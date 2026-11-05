@@ -970,7 +970,7 @@ async function enteteSession(){
 function afficherIdentifiants(data, titre){
   const astreinte = 'https://f07303988-hub.github.io/Astreinte--lu/', controles = 'https://f07303988-hub.github.io/controles-pasly/';
   const signale = ['agent', 'lecteur'].includes(data.role);
-  S.nouveauCompte = `Bonjour ${data.nom},\n\n${titre === 'Compte créé' ? 'Votre compte pour les applications de la mairie de Pasly est prêt.' : 'Voici votre nouveau mot de passe pour les applications de la mairie de Pasly.'}\n\nIdentifiant : ${data.email}\nMot de passe : ${data.motDePasse}\n\n`
+  S.nouveauCompte = `Bonjour ${data.nom},\n\n${titre === 'Compte créé' ? 'Votre compte pour les applications de la mairie de Pasly est prêt.' : titre === 'Appareils déconnectés' ? "Par sécurité (téléphone perdu ou volé), votre compte a été déconnecté de tous les appareils. Voici votre nouveau mot de passe pour les applications de la mairie de Pasly." : 'Voici votre nouveau mot de passe pour les applications de la mairie de Pasly.'}\n\nIdentifiant : ${data.email}\nMot de passe : ${data.motDePasse}\n\n`
     + (signale ? `Pour faire des signalements : installez Pasly Astreinte (${astreinte}), puis « Agent : se connecter pour faire des signalements ».` : '')
     + (data.role !== 'agent' ? `${signale ? '\n\n' : ''}Application des contrôles : ${controles} (le mot de passe vous sera demandé une seule fois, puis vous en choisirez un nouveau).` : '');
   ouvrir(tete(titre) + `
@@ -2705,6 +2705,13 @@ async function vuePlus(){
   const inactif = u => activite && u.actif !== false && u.id !== p.id && Date.now() - new Date(activite[u.id] || u.created_at || 0).getTime() > SIX_MOIS;
   const nbInactifs = profils.filter(inactif).length;
   const derniere = u => !activite ? '' : activite[u.id] ? ` · actif le ${new Date(activite[u.id]).toLocaleDateString('fr-FR')}` : ' · jamais connecté';
+  // Appareils qui reçoivent les alertes d'astreinte
+  let appareils = {};
+  try {
+    const { data } = await sb.functions.invoke('creer-utilisateur', { headers:await enteteSession(), body:{ action:'appareils' } });
+    for (const a of (data?.appareils || [])) (appareils[a.compte] ??= []).push(a);
+  } catch {}
+  const listeAppareils = u => (appareils[u.id] || []).map(a => `<br>🔔 ${esc(a.appareil || 'Appareil')} · vu le ${new Date(a.vu_le).toLocaleDateString('fr-FR')}`).join('');
   h += `<h2>Sites</h2><div class="bloc">
     ${S.sites.map(s => { const n = S.equipements.filter(e => e.site_id === s.id).length;
       return `<div class="ligne-admin"><div><b>${esc(s.nom)}</b><small>${n} équipement(s)${siteActif(s) ? '' : ', archivé'}</small></div>
@@ -2719,12 +2726,13 @@ async function vuePlus(){
     </form></div>
   <h2>Utilisateurs</h2><div class="bloc">
     ${nbInactifs ? `<p class="alerte" style="margin:0 0 10px;font-weight:700">⚠️ ${nbInactifs} compte${nbInactifs > 1 ? 's' : ''} sans activité depuis plus de 6 mois (marqué${nbInactifs > 1 ? 's' : ''} ci-dessous). ${nbInactifs > 1 ? 'Désactivez ceux des personnes parties' : "S'il s'agit d'une personne partie, désactivez son compte"} : l'historique est conservé.</p>` : ''}
-    ${profils.map(u => `<div class="ligne-admin" ${u.actif === false ? 'style="opacity:.6"' : ''}><div><b>${inactif(u) ? '⚠️ ' : ''}${esc(u.nom || u.email)}</b><small>${esc(u.email)}${u.actif === false ? ' · <b>désactivé</b>' : esc(derniere(u))}</small></div>
+    ${profils.map(u => `<div class="ligne-admin" ${u.actif === false ? 'style="opacity:.6"' : ''}><div><b>${inactif(u) ? '⚠️ ' : ''}${esc(u.nom || u.email)}</b><small>${esc(u.email)}${u.actif === false ? ' · <b>désactivé</b>' : esc(derniere(u))}${listeAppareils(u)}</small></div>
       <select onchange="App.role('${u.id}', this.value)" ${u.id === p.id ? 'disabled' : ''} aria-label="Rôle">
         ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${v}</option>`).join('')}
       </select>
       ${u.id !== p.id ? `<button class="petit secondaire" onclick="App.renommerUtilisateur('${u.id}')">Nom</button>
-      <button class="petit secondaire" onclick="App.nouveauMdp('${u.id}')">Mot de passe</button>` : ''}
+      <button class="petit secondaire" onclick="App.nouveauMdp('${u.id}')">Mot de passe</button>
+      <button class="petit danger" onclick="App.telephonePerdu('${u.id}')" title="Déconnecte tous les appareils de ce compte et donne un nouveau mot de passe">Téléphone perdu</button>` : ''}
       ${S.activationOk && u.id !== p.id ? `<button class="petit ${u.actif === false ? 'secondaire' : 'danger'}" onclick="App.activerCompte('${u.id}', ${u.actif === false})">${u.actif === false ? 'Réactiver' : 'Désactiver'}</button>` : ''}</div>`).join('')}
     ${S.activationOk ? '<p class="aide">Un compte désactivé ne peut plus rien consulter ni modifier, même s’il est encore connecté. Son historique est conservé.</p>' : ''}
     <form onsubmit="App.creerUtilisateur(event)" style="margin-top:12px">
@@ -6222,6 +6230,18 @@ const App = {
       if (error){ let m = error.message; try { const j = await error.context?.json(); if (j?.erreur) m = j.erreur; } catch {} throw new Error(m); }
       if (!data?.ok) throw new Error(data?.erreur || 'Modification impossible');
       afficherIdentifiants(data, 'Nouveau mot de passe');
+    } catch (err){ toast(traduire(err), true); }
+  },
+  async telephonePerdu(id){
+    if (!estAdmin()) return;
+    if (!confirm("Téléphone perdu ou volé ?\n\nTous les téléphones et ordinateurs connectés avec ce compte vont perdre l'accès à la mairie (en moins d'une heure) et ne recevront plus les alertes. Un nouveau mot de passe va être créé, à saisir sur le téléphone de remplacement.\n\nContinuer ?")) return;
+    try {
+      const { data, error } = await sb.functions.invoke('creer-utilisateur', { headers:await enteteSession(), body:{ action:'telephone_perdu', id } });
+      if (error){ let m = error.message; try { const j = await error.context?.json(); if (j?.erreur) m = j.erreur; } catch {} throw new Error(m); }
+      if (!data?.ok) throw new Error(data?.erreur || 'Opération impossible');
+      afficherIdentifiants(data, 'Appareils déconnectés');
+      toast(`${data.sessions || 0} connexion${(data.sessions || 0) > 1 ? 's' : ''} coupée${(data.sessions || 0) > 1 ? 's' : ''}`);
+      rendre();
     } catch (err){ toast(traduire(err), true); }
   },
   async copierNouveauCompte(){
