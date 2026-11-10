@@ -2,8 +2,13 @@
 //
 // Enregistre une copie complète des données (toutes les tables, au format JSON)
 // dans l'espace de fichiers privé « sauvegardes », supprime les copies de plus
-// de 12 mois et, si un service d'envoi est configuré (secrets BREVO_API_KEY et
-// BREVO_SENDER_EMAIL), envoie la copie par email aux administrateurs.
+// de 12 mois, puis envoie la copie par email :
+//   - directement, si ce projet a un service d'envoi (secrets BREVO_API_KEY et
+//     BREVO_SENDER_EMAIL), aux administrateurs ;
+//   - sinon par le relais du projet « Planning Astreinte », qui détient la clé
+//     d'envoi (fonction relais-sauvegarde ; adresse et jeton dans la table
+//     cles_serveur, clé « relais_sauvegarde »). Le relais fixe lui-même le
+//     destinataire.
 //
 // Deux appelants possibles :
 //   - la tâche planifiée de la base, le 1er de chaque mois (clé interne vérifiée) ;
@@ -68,7 +73,10 @@ Deno.serve(async (req) => {
       taille: octets.length, detail: nonVides,
     };
 
-    if (b.test) return rep({ test: true, ...resume, email: cleEmail && expediteur ? "configuré" : "non configuré" });
+    const { data: cleRelais } = await db.from("cles_serveur").select("valeur").eq("cle", "relais_sauvegarde").maybeSingle();
+    const relais = cleRelais?.valeur?.v && cleRelais?.valeur?.url ? cleRelais.valeur as { v: string; url: string } : null;
+
+    if (b.test) return rep({ test: true, ...resume, email: cleEmail && expediteur ? "configuré" : relais ? "relais configuré" : "non configuré" });
 
     // 1. Copie dans l'espace privé (une par jour : relancer le même jour remplace la copie).
     const chemin = `${jour.slice(0, 4)}/${nom}`;
@@ -88,7 +96,7 @@ Deno.serve(async (req) => {
       if (perimees.length) { const rm = await db.storage.from(ESPACE).remove(perimees); if (!rm.error) supprimees += perimees.length; }
     }
 
-    // 3. Envoi par email aux administrateurs, si un service d'envoi est configuré.
+    // 3. Envoi par email : directement si ce projet a un service d'envoi, sinon par le relais.
     let email = "non configuré";
     if (cleEmail && expediteur) {
       const { data: admins } = await db.from("profils").select("email, nom").eq("role", "admin").eq("actif", true);
@@ -114,6 +122,16 @@ Deno.serve(async (req) => {
         email = r.ok ? `envoyé à ${destinataires.length} administrateur${destinataires.length > 1 ? "s" : ""}` : `échec (${r.status})`;
         await r.body?.cancel();
       }
+    } else if (relais) {
+      try {
+        const r = await fetch(relais.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-jeton-relais": relais.v },
+          body: JSON.stringify({ jour, resume: nonVides, contenu_base64: enBase64(octets) }),
+        });
+        email = r.ok ? "envoyé par le relais" : `échec du relais (${r.status})`;
+        await r.body?.cancel();
+      } catch { email = "relais injoignable"; }
     }
 
     return rep({ ok: true, copie: chemin, ...resume, copies_supprimees: supprimees, email });

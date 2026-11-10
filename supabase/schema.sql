@@ -16,6 +16,10 @@
 --       insert into public.cles_serveur (cle, valeur)
 --       values ('entretien', jsonb_build_object('v', encode(gen_random_bytes(32), 'hex')));
 --     (les clés des alertes téléphone se recréent seules au premier usage) ;
+--   * l'envoi des sauvegardes par email : soit les secrets BREVO_API_KEY et
+--     BREVO_SENDER_EMAIL de ce projet, soit le relais du projet « Planning
+--     Astreinte » (ligne « relais_sauvegarde » de cles_serveur, avec un jeton
+--     dont le relais ne connaît que l'empreinte : voir sa fonction relais-sauvegarde) ;
 --   * les fonctions serveur du dossier supabase/functions (à déployer) ;
 --   * les réglages de connexion (Authentication) et les comptes.
 --

@@ -6,6 +6,13 @@
 -- seulement, et l'envoie par email si un service d'envoi est configuré.
 -- Les copies de plus de 12 mois sont supprimées.
 --
+-- Envoi par email : ce projet n'ayant pas de service d'envoi, la copie est
+-- confiée au relais du projet « Planning Astreinte » (fonction
+-- relais-sauvegarde), qui fixe lui-même le destinataire. L'adresse du relais
+-- et le jeton sont dans cles_serveur (clé « relais_sauvegarde ») ; le jeton
+-- a été créé dans la base et n'est écrit nulle part ailleurs — le relais
+-- n'en conserve que l'empreinte.
+--
 -- Ne sont pas copiés : les secrets et données techniques (clés du serveur,
 -- abonnements des téléphones, mémoire des alertes), les comptes et mots de
 -- passe (gérés par Supabase), et les fichiers eux-mêmes (PDF, photos) —
