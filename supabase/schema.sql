@@ -1,7 +1,7 @@
 -- =====================================================================
 -- Bâtiments communaux de Pasly — schéma complet de la base « mairie-pasly »
 -- =====================================================================
--- Photographie de la structure de la base Supabase, générée le 2026-11-10
+-- Photographie de la structure de la base Supabase, établie le 2026-11-10
 -- à partir de la base en service. Elle permet de reconstruire la base sur
 -- un projet Supabase vierge (éditeur SQL), dans l'ordre du fichier.
 --
@@ -1485,6 +1485,40 @@ END;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.sauvegarde_donnees()
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_exclues text[] := array['cles_serveur', 'astreinte_abonnements', 'astreinte_alertes_envoyees'];
+  v_tables jsonb := '{}'::jsonb;
+  v_lignes jsonb;
+  r record;
+begin
+  for r in
+    select c.relname from pg_class c
+    where c.relnamespace = 'public'::regnamespace and c.relkind = 'r' and c.relname <> all (v_exclues)
+    order by c.relname
+  loop
+    execute format('select coalesce(jsonb_agg(to_jsonb(t)), ''[]''::jsonb) from public.%I t', r.relname) into v_lignes;
+    v_tables := v_tables || jsonb_build_object(r.relname, v_lignes);
+  end loop;
+  return jsonb_build_object(
+    'application', 'Bâtiments communaux de Pasly',
+    'date', now(),
+    'tables', v_tables,
+    'tables_exclues', to_jsonb(v_exclues),
+    'fichiers', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+        'espace', o.bucket_id, 'chemin', o.name,
+        'taille', (o.metadata->>'size')::bigint, 'cree_le', o.created_at) order by o.bucket_id, o.name), '[]'::jsonb)
+      from storage.objects o where o.bucket_id <> 'sauvegardes'));
+end
+$function$
+;
+
 CREATE OR REPLACE FUNCTION public.signalants_incidents()
  RETURNS TABLE(id uuid, signale_par text)
  LANGUAGE sql
@@ -2054,6 +2088,8 @@ create policy "rapports lecture" on storage.objects as permissive for select to 
   using ((bucket_id = 'rapports'::text));
 create policy "rapports suppression" on storage.objects as permissive for delete to authenticated
   using (((bucket_id = 'rapports'::text) AND (mon_role() = 'admin'::text)));
+create policy "sauvegardes lecture" on storage.objects as permissive for select to authenticated
+  using (((bucket_id = 'sauvegardes'::text) AND (mon_role() = 'admin'::text)));
 
 -- ---------------------------------------------------------------------
 -- 11. DROITS SUR LES FONCTIONS
@@ -2137,6 +2173,8 @@ revoke all on function public.revoquer_sessions(p_compte uuid) from public, anon
 grant execute on function public.revoquer_sessions(p_compte uuid) to service_role;
 revoke all on function public.rls_auto_enable() from public, anon, authenticated;
 grant execute on function public.rls_auto_enable() to service_role;
+revoke all on function public.sauvegarde_donnees() from public, anon, authenticated;
+grant execute on function public.sauvegarde_donnees() to service_role;
 revoke all on function public.signalants_incidents() from public, anon, authenticated;
 grant execute on function public.signalants_incidents() to authenticated;
 grant execute on function public.signalants_incidents() to service_role;
@@ -2236,6 +2274,7 @@ insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types) values ('incidents', 'incidents', false, 26214400, '{image/*,application/pdf}') on conflict (id) do nothing;
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types) values ('interventions', 'interventions', false, 26214400, '{image/*,application/pdf}') on conflict (id) do nothing;
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types) values ('rapports', 'rapports', false, 26214400, '{image/*,application/pdf}') on conflict (id) do nothing;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types) values ('sauvegardes', 'sauvegardes', false, 52428800, '{application/json}') on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------
 -- 15. TÂCHES PLANIFIÉES (pg_cron)
@@ -2250,3 +2289,11 @@ select cron.schedule('astreinte-photos', '27 3 * * *', '
     body := ''{}''::jsonb)
 ');
 select cron.schedule('conservation-purge', '37 3 * * *', 'select public.conservation_purger()');
+select cron.schedule('sauvegarde-mensuelle', '7 4 1 * *', $cron$
+  select net.http_post(
+    url := 'https://idswkljjaoajhevgsnfh.supabase.co/functions/v1/sauvegarde',
+    headers := jsonb_build_object('Content-Type', 'application/json',
+                                  'x-cle-entretien', (select valeur->>'v' from public.cles_serveur where cle = 'entretien')),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 60000)
+$cron$);
