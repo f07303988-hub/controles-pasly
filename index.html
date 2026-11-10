@@ -2861,6 +2861,9 @@ async function vuePlus(){
     </form>
   </div>
   ${estAdmin() ? `<h2>Sauvegarde et journal</h2><div class="bloc pile">
+    <button class="secondaire" onclick="App.voirSauvegardes()">Sauvegardes automatiques</button>
+    <p class="aide" style="margin:0">Une copie complète des données est enregistrée le 1er de chaque mois et conservée 12 mois. Vous pouvez la télécharger,
+      ou en lancer une à tout moment. Elle ne contient pas les fichiers PDF et photos (seulement leur liste), ni les comptes.</p>
     <button class="secondaire" onclick="App.exportDonnees()">Exporter les données (fichier JSON)</button>
     <p class="aide" style="margin:0">Copie lisible des données et liste des fichiers. Ce n'est <b>pas</b> une sauvegarde complète : les fichiers PDF et photos,
       les comptes et les règles de sécurité ne s'y trouvent pas. Suivez la procédure de sauvegarde (base + stockage).</p>
@@ -5161,6 +5164,52 @@ const App = {
     for (const [t, b] of Object.entries(ESP)) for (const d of out.tables[t] || []) if (d.chemin) out.fichiers.push({ espace:b, chemin:d.chemin, nom:d.nom || d.nom_fichier || null, taille_octets:d.taille_octets ?? null, empreinte_sha256:d.empreinte_sha256 ?? null });
     telecharger(`export-donnees-pasly-${aujourdhui()}.json`, JSON.stringify(out, null, 1), 'application/json');
     toast(`Export terminé : ${Object.keys(out.tables).length} tables, ${out.fichiers.length} fichiers référencés${Object.keys(out.erreurs).length ? ', avec erreurs' : ''}.`, !!Object.keys(out.erreurs).length);
+  },
+  /* Sauvegardes automatiques : copies mensuelles enregistrées par la fonction serveur
+     « sauvegarde » dans l'espace privé « sauvegardes » (lecture réservée à l'administrateur). */
+  async voirSauvegardes(){
+    if (!estAdmin()) return;
+    const titre = tete('Sauvegardes automatiques');
+    ouvrir(titre + '<p class="chargement">Chargement…</p>');
+    const copies = [];
+    const annees = await sb.storage.from('sauvegardes').list('', { limit:100 });
+    if (annees.error){ $('#modalContenu').innerHTML = titre + `<p class="vide">${esc(traduire(annees.error))}</p>`; return; }
+    for (const a of annees.data || []){
+      if (!/^\d{4}$/.test(a.name)) continue;
+      const liste = await sb.storage.from('sauvegardes').list(a.name, { limit:1000 });
+      for (const f of liste.data || []){
+        const m = f.name.match(/^sauvegarde-[\w-]+-(\d{4}-\d{2}-\d{2})\.json$/);
+        if (m) copies.push({ chemin:`${a.name}/${f.name}`, jour:m[1], taille:f.metadata?.size ?? null });
+      }
+    }
+    copies.sort((x, y) => y.jour.localeCompare(x.jour));
+    const ko = n => n == null ? '' : n < 1048576 ? `${Math.max(1, Math.round(n / 1024))} Ko` : `${(n / 1048576).toFixed(1).replace('.', ',')} Mo`;
+    $('#modalContenu').innerHTML = titre +
+      `<p class="aide">Copie complète des données, enregistrée le 1er de chaque mois et conservée 12 mois. Elle contient des données personnelles :
+        gardez les fichiers téléchargés en lieu sûr.</p>
+      <div class="boutons" style="margin:0 0 12px"><button class="secondaire" id="btnSauvegarder" onclick="App.sauvegarderMaintenant()">Faire une sauvegarde maintenant</button></div>` +
+      (copies.length ? `<ul class="journal">${copies.map(c => `<li><b>${fmt(c.jour)}</b>${c.taille != null ? ` · ${ko(c.taille)}` : ''}
+          <div class="boutons" style="margin:6px 0 0"><button class="secondaire" onclick="App.telechargerSauvegarde('${esc(c.chemin)}')">Télécharger</button></div></li>`).join('')}</ul>`
+        : '<p class="vide">Aucune sauvegarde pour le moment.</p>');
+  },
+  async telechargerSauvegarde(chemin){
+    if (!estAdmin() || !/^\d{4}\/sauvegarde-[\w-]+\.json$/.test(chemin)) return;
+    const { data, error } = await sb.storage.from('sauvegardes').download(chemin);
+    if (error || !data){ toast(error ? traduire(error) : 'Téléchargement impossible.', true); return; }
+    telecharger(chemin.split('/').pop(), data, 'application/json');
+  },
+  async sauvegarderMaintenant(){
+    if (!estAdmin()) return;
+    const b = $('#btnSauvegarder'); if (b){ b.disabled = true; b.textContent = 'Sauvegarde en cours…'; }
+    try {
+      const { data, error } = await sb.functions.invoke('sauvegarde', { headers:await enteteSession(), body:{} });
+      if (error || !data?.ok) throw new Error(data?.erreur || (error ? traduire(error) : 'Sauvegarde impossible.'));
+      toast(`Sauvegarde enregistrée : ${data.tables} tables, ${data.lignes} lignes${/^envoy/.test(data.email || '') ? ', envoyée par email' : ''}.`);
+      await App.voirSauvegardes();
+    } catch (e){
+      toast(e.message || 'Sauvegarde impossible.', true);
+      if (b){ b.disabled = false; b.textContent = 'Faire une sauvegarde maintenant'; }
+    }
   },
   async voirJournal(){
     if (!estAdmin()) return;
