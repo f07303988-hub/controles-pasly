@@ -11,11 +11,16 @@
 <meta name="apple-mobile-web-app-title" content="Contrôles">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <!-- F1 : seules ces origines sont autorisées (Supabase du projet, bibliothèque Supabase sur jsDelivr) -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.sheetjs.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https://*.supabase.co https://cdn.jsdelivr.net https://tile.openstreetmap.org https://data.geopf.fr; connect-src 'self' https://*.supabase.co wss://*.supabase.co; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
-<!-- I4 : version figée de la bibliothèque. Si elle ne se charge pas, repli sur la dernière version 2 (signalé aux administrateurs). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com https://cdn.sheetjs.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: blob: https://*.supabase.co https://cdn.jsdelivr.net https://tile.openstreetmap.org https://data.geopf.fr; connect-src 'self' https://*.supabase.co wss://*.supabase.co; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<!-- I4 : version figée de la bibliothèque, contrôlée par son empreinte : le navigateur refuse le fichier
+     s'il ne correspond pas exactement (mise à jour ou altération côté serveur de distribution).
+     Si elle ne se charge pas, repli sur une seconde source qui sert le MÊME fichier, avec la même empreinte
+     (signalé par un bandeau). Pour changer de version : remplacer le numéro (3 endroits) ET l'empreinte
+     (sha384 du fichier dist/umd/supabase.js, 2 endroits), puis tester la connexion. -->
 <script>window.SUPABASE_JS_VERSION = '2.45.4';</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js" crossorigin="anonymous"
-  onerror="window.__supabaseRepli=true;document.write('<script src=&quot;https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2&quot;><\/script>')"></script>
+  integrity="sha384-0w2KAL2YHP6wKOkUDzkCDGgVvfmHnj02DHeQ6XcHOgTfFsGyonKOpShMH1x6nk9o"
+  onerror="window.__supabaseRepli=true;document.write('<script src=&quot;https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js&quot; integrity=&quot;sha384-0w2KAL2YHP6wKOkUDzkCDGgVvfmHnj02DHeQ6XcHOgTfFsGyonKOpShMH1x6nk9o&quot; crossorigin=&quot;anonymous&quot;><\/script>')"></script>
 <style>
 :root{
   --encre:#1B2B48; --texte:#25314A; --doux:#5B6780; --papier:#EDF1F6; --carte:#FFFFFF; --ligne:#D2D9E3;
@@ -217,6 +222,11 @@ details.filtres summary span{color:var(--accent);margin-left:6px}
 .vide{background:var(--carte);border:1px dashed var(--ligne);border-radius:var(--rayon);padding:18px;color:var(--doux);margin:8px 0}
 .chargement{color:var(--doux);padding:24px 0}
 .entete-vue{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px}
+/* Titre de page et bouton sur une même ligne, y compris sur téléphone : le bouton ne se coupe
+   pas en deux lignes et le titre est un peu moins grand sur un écran étroit. */
+.entete-vue h1{min-width:0}
+.entete-vue > button, .entete-vue > span > button{white-space:nowrap;flex-shrink:0}
+@media (max-width:480px){ h1{font-size:1.55rem} }
 
 /* Lignes d'équipements */
 .lignes{list-style:none;margin:0;padding:0;background:var(--carte);border:1px solid var(--ligne);border-radius:var(--rayon);overflow:hidden}
@@ -397,7 +407,7 @@ a.bouton-lien{display:inline-flex;align-items:center;text-decoration:none}
 <body class="deconnecte">
 
 <div id="bandeauTest" hidden>Mode test actif : des pannes peuvent être simulées. Retirez « ?test » de l'adresse pour l'usage normal.</div>
-<div id="bandeauBiblio" hidden>Bibliothèque Supabase de secours chargée (version figée indisponible). Prévenez l'administrateur du site.</div>
+<div id="bandeauBiblio" hidden>Bibliothèque Supabase chargée depuis la source de secours (source principale indisponible). Prévenez l'administrateur du site si ce message persiste.</div>
 <header class="barre">
   <div class="titre">Contrôles périodiques<small>Commune de Pasly</small></div>
   <div class="actions-barre">
