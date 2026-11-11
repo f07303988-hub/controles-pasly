@@ -241,6 +241,13 @@ details.filtres summary span{color:var(--accent);margin-left:6px}
 /* Fiche / modale */
 .modal{position:fixed;inset:0;z-index:20;background:rgba(10,18,32,.55);display:flex;align-items:flex-end;justify-content:center}
 .modal[hidden]{display:none}
+/* Fenêtre de confirmation : au-dessus de tout, y compris d'une fiche ouverte */
+#confirmation{border:0;border-radius:16px;padding:22px 20px 18px;width:min(92vw,440px);background:var(--carte);color:var(--texte);box-shadow:0 18px 48px rgba(10,18,32,.35)}
+#confirmation::backdrop{background:rgba(10,18,32,.6)}
+#confirmation p{margin:0 0 18px;font-size:1rem;line-height:1.5;white-space:pre-line;overflow-wrap:anywhere}
+#confirmation .boutons{justify-content:flex-end;flex-wrap:nowrap}
+#confirmation .boutons button{min-width:96px}
+#confirmation .boutons button.danger{background:var(--retard);border-color:var(--retard);color:#fff}
 .feuille{background:var(--papier);width:100%;max-width:680px;max-height:94vh;overflow-y:auto;border-radius:16px 16px 0 0;padding:18px 16px calc(24px + env(safe-area-inset-bottom,0px));animation:monte .2s ease-out}
 @media (min-width:700px){.modal{align-items:center}.feuille{border-radius:16px;max-height:88vh}}
 @keyframes monte{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
@@ -443,6 +450,11 @@ a.bouton-lien{display:inline-flex;align-items:center;text-decoration:none}
 <div id="modal" class="modal" hidden onclick="if(event.target===this)App.fermer()">
   <div class="feuille" role="dialog" aria-modal="true"><button id="retourBat" class="lien" hidden onclick="App.retourBatiment()">‹ Retour à la fiche du bâtiment</button><div id="modalContenu"></div></div>
 </div>
+<!-- Fenêtre de confirmation de l'appli (remplace la boîte de dialogue du navigateur) -->
+<dialog id="confirmation" aria-labelledby="confirmationTexte">
+  <p id="confirmationTexte"></p>
+  <div class="boutons"><button type="button" class="secondaire" data-rep="non">Non</button><button type="button" class="principal" data-rep="oui">Oui</button></div>
+</dialog>
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="horsLigne" role="alert" hidden>Hors connexion : les contrôles, incidents et levées de réserve sont enregistrés sur ce téléphone et envoyés au retour du réseau.</div>
 <div id="bandeauFile" role="status" hidden></div>
@@ -598,6 +610,26 @@ let toastT;
 function toast(msg, erreur = false){
   const t = $('#toast'); t.textContent = msg; t.className = 'visible' + (erreur ? ' erreur' : '');
   clearTimeout(toastT); toastT = setTimeout(() => t.className = '', 3800);
+}
+/* Demande de confirmation dans une fenêtre de l'appli. Renvoie une promesse : true si la personne
+   répond « Oui », false sinon (« Non », touche Échap, clic à côté). À utiliser avec « await ».
+   Une action irréversible (suppression…) affiche un bouton rouge et place le curseur sur « Non ». */
+let confirmationRepondre = null;                              // réponse attendue par la question affichée
+function confirmer(message){
+  const d = $('#confirmation');
+  if (!d || typeof d.showModal !== 'function') return Promise.resolve(window.confirm(message));   // très ancien navigateur
+  if (confirmationRepondre) confirmationRepondre(false);     // une seule question à la fois
+  const danger = /Supprimer|Effacer|définitivement/.test(message);
+  const oui = d.querySelector('[data-rep="oui"]'), non = d.querySelector('[data-rep="non"]');
+  $('#confirmationTexte').textContent = message;
+  oui.className = danger ? 'principal danger' : 'principal';
+  return new Promise(res => {
+    // La réponse est donnée directement par le bouton (ou Échap), sans attendre que le navigateur
+    // signale la fermeture de la fenêtre.
+    confirmationRepondre = rep => { confirmationRepondre = null; if (d.open) d.close(); res(rep); };
+    d.showModal();
+    (danger ? non : oui).focus();
+  });
 }
 function traduire(e){
   const m = e?.message || String(e);
@@ -3240,7 +3272,7 @@ const AppDeci = {
       if ((lat == null) !== (lng == null)) throw new Error('Renseignez la latitude et la longitude, ou aucune des deux.');
       if (lng != null && (!Number.isFinite(lng) || lng < -180 || lng > 180)) throw new Error('Longitude : valeur invalide.');
       if (lat != null && (Math.abs(lat - PASLY[0]) > 0.5 || Math.abs(lng - PASLY[1]) > 0.5)
-        && !confirm('Cette position est à plus de 30 km de Pasly. Latitude et longitude sont peut-être inversées. Enregistrer quand même ?')) return;
+        && !await confirmer('Cette position est à plus de 30 km de Pasly. Latitude et longitude sont peut-être inversées. Enregistrer quand même ?')) return;
       const numero = f.get('numero').trim();
       const ancien = eqId ? ficheP(eqId) : null;
       const d = { numero, type_pei:f.get('type_pei'), statut_juridique:f.get('statut_juridique'), adresse:vide(f.get('adresse').trim()),
@@ -3711,7 +3743,7 @@ Object.assign(AppDeci, {
     inp.click();
   },
   async supprimerPhotoPei(eqId, chemin){
-    if (!confirm('Supprimer définitivement cette photo ?')) return;
+    if (!await confirmer('Supprimer définitivement cette photo ?')) return;
     const { error } = await sb.storage.from('batiments').remove([chemin]);
     if (error) toast(traduire(error), true); else toast('Photo supprimée');
     chargerPhotosPei(eqId);
@@ -3796,7 +3828,7 @@ Object.assign(AppDeci, {
   async lancerImport(btn){
     const A = analyserImport(), site = S.deci.params.site_id && S.sites.find(s => s.id === S.deci.params.site_id) ? S.deci.params.site_id : sitesActifs()[0]?.id;
     if (!site) return toast("Aucun site pour accueillir les points d'eau.", true);
-    if (!confirm(`Importer ${A.nouveaux.length} nouveau(x) point(s) d'eau${A.majs.length ? ` et mettre à jour ${A.majs.length} point(s) existant(s)` : ''} ?`)) return;
+    if (!await confirmer(`Importer ${A.nouveaux.length} nouveau(x) point(s) d'eau${A.majs.length ? ` et mettre à jour ${A.majs.length} point(s) existant(s)` : ''} ?`)) return;
     btn.disabled = true; btn.textContent = 'Import en cours…';
     const ids = S.imp.ids ??= {};      // identifiants fixés : relancer après une erreur ne crée pas de doublon
     const fiche = (d, eqId, ancien = {}) => {
@@ -4005,9 +4037,9 @@ const AppAst = {
 };
 
 const App = {
-  fermer(){
+  async fermer(){
     if (S.mdpObligatoire) return toast('Choisissez d’abord votre nouveau mot de passe.', true);
-    if (envoisEnCours && !confirm("Un envoi de fichiers est en cours. Fermer quand même ? Les fichiers non envoyés pourront être ajoutés plus tard depuis l'historique.")) return;
+    if (envoisEnCours && !await confirmer("Un envoi de fichiers est en cours. Fermer quand même ? Les fichiers non envoyés pourront être ajoutés plus tard depuis l'historique.")) return;
     fermer();
   },
   aller(vue){ S.vue = vue; window.scrollTo(0, 0); rendre(); },
@@ -4041,10 +4073,10 @@ const App = {
       await apresConnexion();
     } catch {} finally { b.disabled = false; }
   },
-  choisirCompte(sel){
+  async choisirCompte(sel){
     const f = sel.form, v = sel.value;
     if (v === '__oublier'){
-      if (confirm('Effacer la liste des comptes utilisés sur cet appareil ?')){ try { localStorage.removeItem(CLE_COMPTES); } catch {} afficherConnexion(); }
+      if (await confirmer('Effacer la liste des comptes utilisés sur cet appareil ?')){ try { localStorage.removeItem(CLE_COMPTES); } catch {} afficherConnexion(); }
       else sel.value = '';
       return;
     }
@@ -4082,7 +4114,7 @@ const App = {
   },
   async deconnexion(){
     const n = (S.file || []).length;
-    if (n && !confirm(`${n} saisie${n > 1 ? 's' : ''} n'${n > 1 ? 'ont' : 'a'} pas encore été envoyée${n > 1 ? 's' : ''} et ser${n > 1 ? 'ont' : 'a'} perdue${n > 1 ? 's' : ''}. Se déconnecter quand même ?`)) return;
+    if (n && !await confirmer(`${n} saisie${n > 1 ? 's' : ''} n'${n > 1 ? 'ont' : 'a'} pas encore été envoyée${n > 1 ? 's' : ''} et ser${n > 1 ? 'ont' : 'a'} perdue${n > 1 ? 's' : ''}. Se déconnecter quand même ?`)) return;
     await IDB.vider('file').catch(() => {}); await IDB.vider('instantane').catch(() => {});   // rien ne reste sur un appareil partagé
     await sb.auth.signOut(); fermer(); await majFile(); afficherConnexion();
   },
@@ -4205,7 +4237,7 @@ const App = {
     } catch (err){ toast(traduire(err), true); }
   },
   async archiverEquipement(id, remettre){
-    if (!remettre && !confirm("Archiver cet équipement ? Il n'apparaîtra plus dans les échéances. Son historique et ses rapports sont conservés et il pourra être remis en service.")) return;
+    if (!remettre && !await confirmer("Archiver cet équipement ? Il n'apparaîtra plus dans les échéances. Son historique et ses rapports sont conservés et il pourra être remis en service.")) return;
     try {
       await q(sb.from('equipements').update({ actif:!!remettre }).eq('id', id));
       toast(remettre ? 'Équipement remis en service' : 'Équipement archivé');
@@ -4218,10 +4250,10 @@ const App = {
       const plans = await q(sb.from('plans').select('id').eq('equipement_id', id));
       const n = await nbControles(plans.map(p => p.id));
       if (n){
-        if (confirm(`Cet équipement a ${n} contrôle${n > 1 ? 's' : ''} enregistré${n > 1 ? 's' : ''} : il ne peut pas être supprimé. L'archiver à la place ?`)) App.archiverEquipement(id, false);
+        if (await confirmer(`Cet équipement a ${n} contrôle${n > 1 ? 's' : ''} enregistré${n > 1 ? 's' : ''} : il ne peut pas être supprimé. L'archiver à la place ?`)) App.archiverEquipement(id, false);
         return;
       }
-      if (!confirm("Supprimer définitivement cet équipement ? Aucun contrôle n'a été enregistré.")) return;
+      if (!await confirmer("Supprimer définitivement cet équipement ? Aucun contrôle n'a été enregistré.")) return;
       await q(sb.from('equipements').delete().eq('id', id));
       fermer(); toast('Équipement supprimé'); await recharger();
     } catch {}
@@ -4293,7 +4325,7 @@ const App = {
     try {
       const n = await nbControles([planId]);
       if (n) return alert(`Ce contrôle prévu a ${n} contrôle${n > 1 ? 's' : ''} enregistré${n > 1 ? 's' : ''} : il ne peut pas être supprimé. Décochez « Contrôle actif » pour l'archiver en conservant l'historique.`);
-      if (!confirm('Supprimer ce contrôle prévu ? Aucun contrôle n’a été enregistré.')) return;
+      if (!await confirmer('Supprimer ce contrôle prévu ? Aucun contrôle n’a été enregistré.')) return;
       await q(sb.from('plans').delete().eq('id', planId)); toast('Contrôle prévu supprimé'); await recharger(); App.fiche(eqId);
     } catch {}
   },
@@ -4334,7 +4366,7 @@ const App = {
         e.resultat = f.get('resultat');
         b.textContent = 'Vérification…';
         const deja = await q(sb.from('controles').select('id').eq('plan_id', planId).eq('date_realisation', date).neq('id', id).limit(1));
-        if (deja.length && !confirm(`Un contrôle est déjà enregistré pour le ${fmt(date)}. En créer un second ?`)){
+        if (deja.length && !await confirmer(`Un contrôle est déjà enregistré pour le ${fmt(date)}. En créer un second ?`)){
           b.disabled = false; b.textContent = 'Enregistrer le contrôle'; return;
         }
         b.textContent = 'Enregistrement du contrôle…';
@@ -4373,9 +4405,9 @@ const App = {
       await recharger();
       const pei = ficheP(eqId);
       if (pei && resultat === 'non_conforme' && (pei.disponibilite || 'disponible') === 'disponible' && peutSaisir()
-        && confirm("Contrôle non conforme. Déclarer ce point d'eau indisponible (ou disponible avec restriction) et prévenir le SDIS ?")) App.formDispo(eqId);
+        && await confirmer("Contrôle non conforme. Déclarer ce point d'eau indisponible (ou disponible avec restriction) et prévenir le SDIS ?")) App.formDispo(eqId);
     } catch (err){
-      if (!e.cree && estErreurReseau(err) && confirm("Pas de réseau : enregistrer ce contrôle sur le téléphone et l'envoyer automatiquement plus tard ?")){
+      if (!e.cree && estErreurReseau(err) && await confirmer("Pas de réseau : enregistrer ce contrôle sur le téléphone et l'envoyer automatiquement plus tard ?")){
         delete ENVOIS[id]; return App.mettreEnFile('controle', form, { planId, eqId }); }
       toast(traduire(err), true);
       b.disabled = false;
@@ -4428,7 +4460,7 @@ const App = {
     App.fiche(eqId);
   },
   async supprimerControle(id, eqId){
-    if (!confirm('Supprimer définitivement ce contrôle et ses pièces jointes ?')) return;
+    if (!await confirmer('Supprimer définitivement ce contrôle et ses pièces jointes ?')) return;
     try {
       const docs = await q(sb.from('documents').select('chemin').eq('controle_id', id));
       const r = await q(sb.from('controles').delete().eq('id', id).select('id'));   // la base d'abord : rien n'est perdu si elle refuse
@@ -4474,13 +4506,13 @@ const App = {
   },
   async archiverSite(id, reactiver){
     const n = S.equipements.filter(e => e.site_id === id).length;
-    if (!reactiver && !confirm(`Archiver ce site${n ? ` et ses ${n} équipement(s)` : ''} ? Ils n'apparaîtront plus dans les échéances ; l'historique et les rapports sont conservés.`)) return;
+    if (!reactiver && !await confirmer(`Archiver ce site${n ? ` et ses ${n} équipement(s)` : ''} ? Ils n'apparaîtront plus dans les échéances ; l'historique et les rapports sont conservés.`)) return;
     try { await q(sb.from('sites').update({ actif:!!reactiver }).eq('id', id)); toast(reactiver ? 'Site réactivé' : 'Site archivé'); await recharger(); } catch {}
   },
   async supprimerSite(id){
     const n = S.equipements.filter(e => e.site_id === id).length;
     if (n) return alert(`Ce site contient ${n} équipement(s) : il ne peut pas être supprimé. Archivez-le pour conserver l'historique.`);
-    if (!confirm('Supprimer ce site vide ?')) return;
+    if (!await confirmer('Supprimer ce site vide ?')) return;
     try { await q(sb.from('sites').delete().eq('id', id)); toast('Site supprimé'); await recharger(); } catch {}
   },
   /* ================= Fiche bâtiment ================= */
@@ -4624,7 +4656,7 @@ const App = {
       (l.length && navigator.onLine ? `<div class="boutons"><button class="principal" onclick="App.synchroniser(true).then(() => App.voirFile())">Envoyer maintenant</button></div>` : ''));
   },
   async supprimerDeFile(id){
-    if (!confirm('Supprimer définitivement cette saisie ? Elle ne sera jamais envoyée.')) return;
+    if (!await confirmer('Supprimer définitivement cette saisie ? Elle ne sera jamais envoyée.')) return;
     await IDB.suppr('file', id); App.voirFile();
   },
 
@@ -5078,7 +5110,7 @@ const App = {
         const deja = await q(sb.from('controles').select('plan_id').in('plan_id', choisis.map(([id]) => id)).eq('date_realisation', date));
         if (deja.length){
           const noms = deja.map(d => S.echeances.find(x => x.plan_id === d.plan_id)?.equipement || '?');
-          if (!confirm(`Un contrôle existe déjà à cette date pour : ${noms.join(', ')}.\nEnregistrer quand même ?`)) return;
+          if (!await confirmer(`Un contrôle existe déjà à cette date pour : ${noms.join(', ')}.\nEnregistrer quand même ?`)) return;
         }
         e.choisis = choisis; e.date = date;
         choisis.forEach(([id]) => { e.ids[id] ??= nouvelId(); });
@@ -5336,7 +5368,7 @@ const App = {
     $('#modalContenu').innerHTML = h;
   },
   async annulerDepense(id){
-    if (!confirm("Annuler cette dépense ? Elle reste visible (statut « Annulé ») et n'est plus comptée dans le prévu.")) return;
+    if (!await confirmer("Annuler cette dépense ? Elle reste visible (statut « Annulé ») et n'est plus comptée dans le prévu.")) return;
     try { const r = await q(sb.from('depenses').update({ annulee:true }).eq('id', id).select('id')); if (!r?.length) throw new Error('Modification refusée.'); toast('Dépense annulée'); App.apresBudget('dep', id); }
     catch (err){ toast(traduire(err), true); }
   },
@@ -5403,7 +5435,7 @@ const App = {
       if (d.reference && autres.some(v => (v.prestataire_id || '') === (d.prestataire_id || '') && norm(v.reference || '').trim() === norm(d.reference).trim()))
         throw new Error('Cette référence de facture est déjà enregistrée pour ce fournisseur.');
       const proche = autres.find(v => v.date_facture === d.date_facture && (v.prestataire_id || '') === (d.prestataire_id || '') && v.montant_ttc != null && v.montant_ttc === d.montant_ttc);
-      if (proche && !confirm('Une facture du même fournisseur, à la même date et du même montant TTC est déjà enregistrée. Enregistrer quand même ?')) return;
+      if (proche && !await confirmer('Une facture du même fournisseur, à la même date et du même montant TTC est déjà enregistrée. Enregistrer quand même ?')) return;
     } catch (err){ return toast(traduire(err), true); }
     b.disabled = true; b.textContent = 'Enregistrement…';
     try {
@@ -5450,7 +5482,7 @@ const App = {
   async supprimerFacture(fid, type, opId){
     if (!estAdmin()) return;
     const x = (S.budget.factures || []).find(f => f.id === fid);
-    if (!confirm('Supprimer définitivement cette facture ? La suppression reste tracée dans le journal.')) return;
+    if (!await confirmer('Supprimer définitivement cette facture ? La suppression reste tracée dans le journal.')) return;
     try {
       const r = await q(sb.from('factures').delete().eq('id', fid).select('id')); if (!r?.length) throw new Error('Suppression refusée.');
       if (x?.chemin) await sb.storage.from('factures').remove([x.chemin]).catch(() => {});
@@ -5632,7 +5664,7 @@ const App = {
         if (d[k + '_ht'] != null && d[k + '_ttc'] != null && d[k + '_ttc'] < d[k + '_ht']) throw new Error(`${l} : le montant TTC doit être supérieur ou égal au HT.`);
       }
       if (d.statut === 'annule' && (!id || S.interventions.find(i => i.id === id)?.statut !== 'annule')
-          && !confirm('Annuler cette intervention ? Seul un administrateur pourra ensuite la rouvrir.')) return;
+          && !await confirmer('Annuler cette intervention ? Seul un administrateur pourra ensuite la rouvrir.')) return;
     } catch (err){ return toast(traduire(err), true); }
     b.disabled = true; b.textContent = 'Enregistrement…';
     const cle = form.dataset.id;
@@ -5742,7 +5774,7 @@ const App = {
   async changerStatutInt(id, bouton){
     const x = S.interventions.find(i => i.id === id), nouveau = $('#statutInt').value;
     if (!x || nouveau === x.statut) return toast('Le statut est déjà « ' + STATUTS_INT[nouveau] + ' ».');
-    if (nouveau === 'annule' && !confirm('Annuler cette intervention ? Seul un administrateur pourra ensuite la rouvrir.')) return;
+    if (nouveau === 'annule' && !await confirmer('Annuler cette intervention ? Seul un administrateur pourra ensuite la rouvrir.')) return;
     bouton.disabled = true; bouton.textContent = '…';
     try {
       await majIntervention(id, { statut:nouveau }); toast('Statut : ' + STATUTS_INT[nouveau]);
@@ -5755,7 +5787,7 @@ const App = {
   async supprimerIntervention(id){
     const x = S.interventions.find(i => i.id === id);
     if (!x || !estAdmin() || x.statut !== 'a_planifier') return toast('Seule une intervention « À planifier » peut être supprimée, par un administrateur.', true);
-    if (!confirm(`Supprimer l'intervention « ${x.objet} » ? La suppression restera tracée. Pour une intervention qui n'aura pas lieu, préférez « Annulé ».`)) return;
+    if (!await confirmer(`Supprimer l'intervention « ${x.objet} » ? La suppression restera tracée. Pour une intervention qui n'aura pas lieu, préférez « Annulé ».`)) return;
     try {
       const r = await q(sb.from('interventions').delete().eq('id', id).select('id'));
       if (!r || !r.length) throw new Error("Suppression refusée : l'intervention a changé de statut ou contient des documents.");
@@ -5774,7 +5806,7 @@ const App = {
     const msg = cible === 'resolu'
       ? `L'intervention est terminée.${autres ? ` Attention : ${autres} autre${autres > 1 ? 's' : ''} intervention${autres > 1 ? 's' : ''} liée${autres > 1 ? 's' : ''} ${autres > 1 ? 'sont' : 'est'} encore en cours.` : ''}\n\nPasser l'incident « ${inc.titre} » (${STATUTS_INC[inc.statut]}) en « Résolu » ?`
       : `L'intervention démarre.\n\nPasser l'incident « ${inc.titre} » (${STATUTS_INC[inc.statut]}) en « En cours » ?`;
-    if (!confirm(msg)) return toast("Statut de l'incident inchangé.");
+    if (!await confirmer(msg)) return toast("Statut de l'incident inchangé.");
     try { await majIncident(incId, { statut:cible }); await chargerIncidents(); toast(`Incident passé en « ${STATUTS_INC[cible]} »`); }
     catch (err){ toast("Incident non modifié : " + traduire(err), true); }
   },
@@ -5808,8 +5840,8 @@ const App = {
       if (d.cout_reel_ht != null && d.cout_reel_ttc != null && d.cout_reel_ttc < d.cout_reel_ht) throw new Error('Coût réel : le TTC doit être supérieur ou égal au HT.');
     } catch (err){ return toast(traduire(err), true); }
     if (!x?.factures_n && d.cout_reel_ht == null && d.cout_reel_ttc == null
-        && !confirm("Aucun coût réel n'est saisi : cette intervention ne sera comptée dans aucune dépense. Clôturer quand même ?")) return;
-    if (!confirm('Clôturer cette intervention ? Seul un administrateur pourra ensuite la rouvrir.')) return;
+        && !await confirmer("Aucun coût réel n'est saisi : cette intervention ne sera comptée dans aucune dépense. Clôturer quand même ?")) return;
+    if (!await confirmer('Clôturer cette intervention ? Seul un administrateur pourra ensuite la rouvrir.')) return;
     b.disabled = true; b.textContent = 'Clôture…';
     try {
       await majIntervention(id, d);
@@ -6104,7 +6136,7 @@ const App = {
   async changerStatutInc(id, bouton){
     const i = S.incidents.find(x => x.id === id), nouveau = $('#statutInc').value;
     if (!i || nouveau === i.statut) return toast('Le statut est déjà « ' + STATUTS_INC[nouveau] + ' ».');
-    if (nouveau === 'cloture' && !confirm("Clôturer cet incident ? Seul un administrateur pourra ensuite le modifier.")) return;
+    if (nouveau === 'cloture' && !await confirmer("Clôturer cet incident ? Seul un administrateur pourra ensuite le modifier.")) return;
     bouton.disabled = true; bouton.textContent = '…';
     try { await majIncident(id, { statut:nouveau }); toast('Statut : ' + STATUTS_INC[nouveau]); await chargerIncidents(); if (S.vue === 'incidents') majIncidents(); App.ficheIncident(id); }
     catch (err){ toast(traduire(err), true); bouton.disabled = false; bouton.textContent = 'Appliquer'; }
@@ -6183,7 +6215,7 @@ const App = {
   async supprimerIncident(id){
     const i = S.incidents.find(x => x.id === id);
     if (!i || !estAdmin() || i.statut !== 'nouveau') return toast('Seul un incident « Nouveau » peut être supprimé, par un administrateur.', true);
-    if (!confirm(`Supprimer définitivement l'incident « ${i.titre} » et ses photos ? La suppression restera tracée dans le journal.`)) return;
+    if (!await confirmer(`Supprimer définitivement l'incident « ${i.titre} » et ses photos ? La suppression restera tracée dans le journal.`)) return;
     try {
       const docs = await q(sb.from('incident_documents').select('chemin').eq('incident_id', id));
       const r = await q(sb.from('incidents').delete().eq('id', id).select('id'));
@@ -6338,12 +6370,12 @@ const App = {
     const r = S.audit?.[k]; if (!r || r.erreur) return;
     try {
       if (type === 'introuvables'){
-        if (!confirm(`Retirer ${r.introuvables.length} référence(s) vers des fichiers introuvables ?`)) return;
+        if (!await confirmer(`Retirer ${r.introuvables.length} référence(s) vers des fichiers introuvables ?`)) return;
         await q(sb.from(r.src.table).delete().in('id', r.introuvables.map(d => d.id)));
       } else {
         const cibles = r.isoles.filter(o => !o.recent).map(o => o.chemin);
         if (!cibles.length) return toast('Aucun fichier de plus d’une heure à supprimer.');
-        if (!confirm(`Supprimer définitivement ${cibles.length} fichier(s) non rattaché(s) ?`)) return;
+        if (!await confirmer(`Supprimer définitivement ${cibles.length} fichier(s) non rattaché(s) ?`)) return;
         await q(sb.storage.from(r.src.bucket).remove(cibles));
       }
       toast('Nettoyage effectué');
@@ -6352,7 +6384,7 @@ const App = {
   },
   async activerCompte(id, activer){
     if (!estAdmin()) return;
-    if (!activer && !confirm("Désactiver ce compte ? La personne ne pourra plus rien consulter ni modifier, même si elle est connectée. Son historique est conservé et le compte pourra être réactivé.")) return;
+    if (!activer && !await confirmer("Désactiver ce compte ? La personne ne pourra plus rien consulter ni modifier, même si elle est connectée. Son historique est conservé et le compte pourra être réactivé.")) return;
     try {
       const r = await q(sb.from('profils').update({ actif:!!activer }).eq('id', id).select('id'));
       if (!r?.length) throw new Error('Modification refusée.');
@@ -6394,7 +6426,7 @@ const App = {
   },
   async nouveauMdp(id){
     if (!estAdmin()) return;
-    if (!confirm("Donner un nouveau mot de passe à cette personne ? L'ancien ne fonctionnera plus.")) return;
+    if (!await confirmer("Donner un nouveau mot de passe à cette personne ? L'ancien ne fonctionnera plus.")) return;
     try {
       const { data, error } = await sb.functions.invoke('creer-utilisateur', { headers:await enteteSession(), body:{ action:'mot_de_passe', id } });
       if (error){ let m = error.message; try { const j = await error.context?.json(); if (j?.erreur) m = j.erreur; } catch {} throw new Error(m); }
@@ -6422,10 +6454,10 @@ const App = {
     else S.rc.municipalContacts.push({ id:rcIdent('contact', pris), emoji:'📞', name:'', phone:'' });
     const y = $('.feuille')?.scrollTop; rendreRC(); if ($('.feuille')) $('.feuille').scrollTop = y;
   },
-  rcRetirer(liste, i){
+  async rcRetirer(liste, i){
     const el = S.rc[liste][i];
     const nom = el.label || el.name || 'cet élément';
-    if (!confirm(liste === 'categories'
+    if (!await confirmer(liste === 'categories'
       ? `Retirer la catégorie « ${nom} » ? Les incidents déjà classés dans cette catégorie restent dans l'historique (affichés « ❓ »).`
       : `Retirer le numéro « ${nom} » ? Il disparaîtra aussi des catégories qui le proposaient.`)) return;
     S.rc[liste].splice(i, 1);
@@ -6450,7 +6482,7 @@ const App = {
   },
   async telephonePerdu(id){
     if (!estAdmin()) return;
-    if (!confirm("Téléphone perdu ou volé ?\n\nTous les téléphones et ordinateurs connectés avec ce compte vont perdre l'accès à la mairie (en moins d'une heure) et ne recevront plus les alertes. Un nouveau mot de passe va être créé, à saisir sur le téléphone de remplacement.\n\nContinuer ?")) return;
+    if (!await confirmer("Téléphone perdu ou volé ?\n\nTous les téléphones et ordinateurs connectés avec ce compte vont perdre l'accès à la mairie (en moins d'une heure) et ne recevront plus les alertes. Un nouveau mot de passe va être créé, à saisir sur le téléphone de remplacement.\n\nContinuer ?")) return;
     try {
       const { data, error } = await sb.functions.invoke('creer-utilisateur', { headers:await enteteSession(), body:{ action:'telephone_perdu', id } });
       if (error){ let m = error.message; try { const j = await error.context?.json(); if (j?.erreur) m = j.erreur; } catch {} throw new Error(m); }
@@ -6522,7 +6554,17 @@ const App = {
 Object.assign(App, AppDeci, AppAst);
 window.App = App;
 
+$('#confirmation').addEventListener('click', e => {
+  const rep = e.target.closest?.('[data-rep]')?.dataset.rep;
+  if (rep) confirmationRepondre?.(rep === 'oui');
+  else if (e.target === e.currentTarget) confirmationRepondre?.(false);         // clic à côté de la fenêtre
+});
+$('#confirmation').addEventListener('cancel', () => confirmationRepondre?.(false));                     // touche Échap
+// Fermeture par le navigateur sans autre signal. Le navigateur prévient avec un léger retard : si une
+// nouvelle question est déjà affichée, ce signal concerne la précédente et ne doit pas y répondre.
+$('#confirmation').addEventListener('close', e => { if (!e.currentTarget.open) confirmationRepondre?.(false); });
 document.addEventListener('keydown', e => {
+  if ($('#confirmation').open) return;                      // Échap ne ferme que la question, pas la fiche dessous
   if (e.key === 'Escape' && !$('#modal').hidden) App.fermer();
   if (e.key === 'Tab' && !$('#modal').hidden){            // F2 : le focus reste dans la fiche ouverte
     const el = [...$('.feuille').querySelectorAll('button, [href], input, select, textarea')].filter(x => !x.disabled && x.offsetParent !== null);
