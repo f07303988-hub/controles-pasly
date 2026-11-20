@@ -899,7 +899,7 @@ async function recharger(){
   }
   const n = S.echeances.filter(e => statut(e) === 'retard').length;
   const nb = $('#nbRetard'); nb.hidden = !n; nb.textContent = n;
-  if (!S.erreurMaj){ await chargerIncidents(); await chargerInterventions(); await chargerBudget(); await chargerERP(); await chargerEcheancesDocs(); try { await chargerDECI(); } catch {} try { await chargerAstreinte(); } catch {} }   // modules indépendants : leur échec n'affecte pas les autres onglets
+  if (!S.erreurMaj){ await chargerIncidents(); await chargerInterventions(); await chargerBudget(); await chargerERP(); await chargerEcheancesDocs(); try { await chargerDECI(); } catch {} try { await chargerEPI(); } catch {} try { await chargerAstreinte(); } catch {} }   // modules indépendants : leur échec n'affecte pas les autres onglets
   await rendre();
   return !S.erreurMaj;
 }
@@ -1681,7 +1681,7 @@ async function rendre(){
   v.classList.toggle('large', S.vue === 'accueil');
   if (S.vue === 'accueil'){ if (!S.tdbReserves) v.innerHTML = '<p class="chargement">Chargement du tableau de bord…</p>'; await chargerReservesTdb(); v.innerHTML = vueAccueil(); }
   if (S.vue === 'echeances'){ if (S.cal?.vue === 'calendrier') v.innerHTML = vueCalendrier(); else { v.innerHTML = vueEcheances(); majEcheances(); } }
-  if (S.vue === 'equipements'){ if (S.eqVue === 'tournee'){ v.innerHTML = vueTournee(); restaurerTournee(); } else if (S.eqVue === 'deci'){ v.innerHTML = vueDeci(); initCarteDeci(); } else v.innerHTML = vueEquipements(); }
+  if (S.vue === 'equipements'){ if (S.eqVue === 'tournee'){ v.innerHTML = vueTournee(); restaurerTournee(); } else if (S.eqVue === 'deci'){ v.innerHTML = vueDeci(); initCarteDeci(); } else if (S.eqVue === 'epi') v.innerHTML = vueEpi(); else v.innerHTML = vueEquipements(); }
   if (S.vue === 'reserves')  { v.innerHTML = '<p class="chargement">Chargement…</p>'; v.innerHTML = await vueReserves(); }
   if (S.vue === 'plus')      { v.innerHTML = '<p class="chargement">Chargement…</p>'; v.innerHTML = await vuePlus(); }
   if (S.vue === 'incidents'){
@@ -2059,6 +2059,12 @@ function vueAccueil(){
     const indispo = listePei().filter(x => x.p.disponibilite === 'indisponible');
     if (indispo.length) h += `<div class="bloc" style="border-color:var(--retard)"><p class="alerte">${indispo.length} point${indispo.length > 1 ? 's' : ''} d'eau incendie indisponible${indispo.length > 1 ? 's' : ''}${indispo.some(x => !x.p.signale_sdis) ? ', dont ' + indispo.filter(x => !x.p.signale_sdis).length + ' non signalé' + (indispo.filter(x => !x.p.signale_sdis).length > 1 ? 's' : '') + ' au SDIS' : ''}</p>
       <div class="actions">${indispo.map(x => `<button class="petit secondaire" onclick="App.fiche('${x.e.id}')">${esc(nomPei(x))}</button>`).join('')}<button class="petit secondaire" onclick="App.vueEq('deci');App.aller('equipements')">Voir la carte</button></div></div>`;
+  }
+  // EPI des agents à renouveler
+  if (epiPret() && !F.site){
+    const al = alertesEpi(), nR = al.filter(x => x.k === 'retard').length;
+    if (al.length) h += `<div class="bloc" style="border-color:var(--${nR ? 'retard' : 'bientot'})"><p class="${nR ? 'alerte' : 'meta'}" style="font-weight:700">${al.length} EPI d'agent à renouveler${nR ? `, dont ${nR} dépassé${nR > 1 ? 's' : ''}` : ''}</p>
+      <div class="actions"><button class="petit secondaire" onclick="App.vueEq('epi');App.aller('equipements')">Voir les EPI</button></div></div>`;
   }
   // Contrôles
   h += `<h2 style="margin-top:0">Contrôles périodiques</h2><div class="ind-grille">
@@ -2771,7 +2777,7 @@ function etiquetteEquipement(id){
   return `<span class="etiquette s-${st}">${st === 'aucun' ? 'Aucun contrôle' : TITRES[st]}</span>`;
 }
 function vueEquipements(){
-  let h = ligneMaj() + (deciPret() || estAdmin() ? ongletsEquipements() : '') + `<div class="entete-vue"><h1>Équipements</h1><span style="display:flex;gap:6px">${peutSaisir() && S.equipements.length ? `<button class="secondaire petit" onclick="App.formEtiquettes()">Étiquettes QR</button>` : ''}${estAdmin() && S.sites.length ? `<button class="principal petit" onclick="App.formEquipement()">Ajouter</button>` : ''}</span></div>`;
+  let h = ligneMaj() + (deciPret() || epiPret() || estAdmin() ? ongletsEquipements() : '') + `<div class="entete-vue"><h1>Équipements</h1><span style="display:flex;gap:6px">${peutSaisir() && S.equipements.length ? `<button class="secondaire petit" onclick="App.formEtiquettes()">Étiquettes QR</button>` : ''}${estAdmin() && S.sites.length ? `<button class="principal petit" onclick="App.formEquipement()">Ajouter</button>` : ''}</span></div>`;
   if (!S.sites.length) return h + `<p class="vide">Aucun site enregistré.${estAdmin() ? ' Créez un site dans l’onglet Compte.' : ''}</p>`;
   const archive = e => !e.actif || !siteActif(S.sites.find(x => x.id === e.site_id));
   const nbArch = S.equipements.filter(archive).length;
@@ -3026,7 +3032,8 @@ function insuffisant(m, p){
 /* ---------- Vue Points d'eau ---------- */
 function ongletsEquipements(){
   const b = (k, l) => `<button class="${S.eqVue === k ? 'actif' : ''}" aria-pressed="${S.eqVue === k}" onclick="App.vueEq('${k}')">${l}</button>`;
-  return `<div class="segments" role="group" aria-label="Type d'équipements">${b('batiments', 'Bâtiments')}${b('deci', "Points d'eau incendie")}</div>`;
+  const epi = epiPret() || estAdmin();
+  return `<div class="segments${epi ? ' trois' : ''}" role="group" aria-label="Type d'équipements">${b('batiments', 'Bâtiments')}${b('deci', epi ? "Points d'eau" : "Points d'eau incendie")}${epi ? b('epi', 'EPI agents') : ''}</div>`;
 }
 function vueDeci(){
   let h = ligneMaj() + ongletsEquipements();
@@ -4033,6 +4040,348 @@ const AppAst = {
   },
   async remettreAst(id){
     try { await q(sb.from('astreinte_incidents').update({ tri:'a_valider', tri_motif:null }).eq('uuid', id)); toast('Remis à valider'); await chargerAstreinte(); rendre(); } catch {}
+  },
+};
+
+/* ==================================================================
+   Module EPI : dotation des agents communaux (chaussures, tenues…)
+   Tables epi_agents, epi_articles, epi_dotations (migration-epi.sql)
+   ================================================================== */
+const CAT_EPI = { pieds:'Pieds', corps:'Tenue', haute_visibilite:'Haute visibilité', mains:'Mains', tete:'Tête', yeux:'Yeux', auditif:'Auditif',
+  respiratoire:'Respiratoire', antichute:'Antichute', autre:'Autre' };
+const STATUTS_EPI = { en_service:'En service', remplace:'Remplacé', perdu:'Perdu', use:'Usé avant terme', rendu:'Rendu' };
+const ETATS_EPI = { retard:['s-retard', 'À renouveler'], bientot:['s-bientot', 'Bientôt'], ok:['s-ok', 'En cours'], usure:['s-planifier', "À l'usure"], manquant:['s-planifier', 'Non perçu'] };
+S.epi = { agents:[], articles:[], dotations:[], absent:false, erreur:null };
+S.epiAgent = null; S.epiHisto = false;
+
+const epiPret = () => !S.epi.absent && !S.epi.erreur;
+const nomAgent = a => a ? [a.prenom, a.nom].filter(Boolean).join(' ') : '—';
+const articleEpi = id => S.epi.articles.find(x => x.id === id);
+const agentEpi = id => S.epi.agents.find(x => x.id === id);
+function ajoutMois(iso, n){
+  const d = dateObj(iso), j = d.getDate();
+  d.setDate(1); d.setMonth(d.getMonth() + n);
+  d.setDate(Math.min(j, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  return isoLocal(d);
+}
+/* Date de renouvellement : saisie à la main, sinon perception (ou fabrication) + durée de vie */
+function echeanceEpi(d){
+  if (d.date_renouvellement) return d.date_renouvellement;
+  const a = articleEpi(d.article_id);
+  if (!a?.duree_vie_mois) return null;
+  const base = a.base_duree === 'fabrication' && d.date_fabrication ? d.date_fabrication : d.date_perception;
+  return ajoutMois(base, a.duree_vie_mois);
+}
+function etatEpi(d){
+  const ech = echeanceEpi(d);
+  if (!ech) return 'usure';
+  const j = ecart(ech);
+  if (j < 0) return 'retard';
+  return j <= (articleEpi(d.article_id)?.rappel_jours ?? 30) ? 'bientot' : 'ok';
+}
+const etiquetteEpi = k => `<span class="etiquette ${ETATS_EPI[k][0]}">${ETATS_EPI[k][1]}</span>`;
+const agentsActifs = () => S.epi.agents.filter(a => a.actif !== false);
+const enService = agentId => S.epi.dotations.filter(d => d.agent_id === agentId && d.statut === 'en_service');
+/* Articles de la dotation de base (quantité > 0) qu'un agent n'a pas en service */
+const manquantsEpi = agentId => S.epi.articles.filter(a => a.actif !== false && a.quantite_dotation > 0 && !enService(agentId).some(d => d.article_id === a.id));
+function alertesEpi(){
+  if (!epiPret()) return [];
+  const actifs = new Set(agentsActifs().map(a => a.id));
+  return S.epi.dotations.filter(d => d.statut === 'en_service' && actifs.has(d.agent_id))
+    .map(d => ({ d, k:etatEpi(d), ech:echeanceEpi(d) })).filter(x => x.k === 'retard' || x.k === 'bientot')
+    .sort((a, b) => a.ech.localeCompare(b.ech));
+}
+const triArticles = (a, b) => (a.ordre ?? 0) - (b.ordre ?? 0) || a.libelle.localeCompare(b.libelle, 'fr');
+
+async function chargerEPI(){
+  const r = await Promise.all([
+    sb.from('epi_agents').select('*').order('nom'),
+    sb.from('epi_articles').select('*').order('ordre').order('libelle'),
+    sb.from('epi_dotations').select('*').order('date_perception', { ascending:false }),
+  ]);
+  const err = r.find(x => x.error)?.error;
+  if (err){ S.epi.absent = tableAbsente(err); S.epi.erreur = S.epi.absent ? null : traduire(err); return; }
+  S.epi.absent = false; S.epi.erreur = null;
+  S.epi.agents = r[0].data || []; S.epi.articles = r[1].data || []; S.epi.dotations = r[2].data || [];
+}
+
+/* ---------- Vue EPI ---------- */
+function vueEpi(){
+  let h = ligneMaj() + ongletsEquipements();
+  if (S.epi.absent) return h + `<h1>EPI des agents</h1><p class="vide">Le module n'est pas encore installé dans la base.${estAdmin() ? ' Exécutez <b>migration-epi.sql</b> dans Supabase (SQL Editor), puis actualisez.' : " Prévenez l'administrateur."}</p>`;
+  if (S.epi.erreur) return h + `<h1>EPI des agents</h1><p class="maj erreur">Données indisponibles : ${esc(S.epi.erreur)}</p>`;
+  const agents = agentsActifs(), anciens = S.epi.agents.filter(a => a.actif === false);
+  h += `<div class="entete-vue"><h1>EPI des agents</h1><span style="display:flex;gap:6px">
+    ${peutSaisir() ? `<button class="principal petit" onclick="App.formAgentEpi()">Ajouter un agent</button>` : ''}</span></div>
+    <div class="actions" style="margin:0 0 12px">
+      <button class="petit secondaire" onclick="App.catalogueEpi()">Catalogue et durées de vie</button>
+      ${agents.length ? `<button class="petit secondaire" onclick="App.imprimerEpi()">Imprimer les fiches de dotation</button>
+      <button class="petit secondaire" onclick="App.csvEpi()">Tableau CSV (Excel)</button>` : ''}</div>`;
+  if (!agents.length) return h + `<p class="vide">Aucun agent enregistré.${peutSaisir() ? ' Ajoutez les agents avec « Ajouter un agent », puis enregistrez les EPI qui leur ont été remis. Les durées de vie se règlent dans « Catalogue et durées de vie ».' : ''}</p>`;
+  const al = alertesEpi(), nR = al.filter(x => x.k === 'retard').length;
+  if (al.length) h += `<div class="bloc" style="border-color:var(--${nR ? 'retard' : 'bientot'})"><p class="${nR ? 'alerte' : 'meta'}" style="font-weight:700">${al.length} EPI à renouveler${nR ? `, dont ${nR} dépassé${nR > 1 ? 's' : ''}` : ' dans les prochaines semaines'}</p>
+    <ul class="sous" style="margin:6px 0 0;padding-left:18px">${al.map(x => `<li>${esc(nomAgent(agentEpi(x.d.agent_id)))} : ${esc(articleEpi(x.d.article_id)?.libelle)}, ${x.k === 'retard' ? 'depuis le' : 'le'} ${fmt(x.ech)}</li>`).join('')}</ul></div>`;
+  for (const a of agents) h += carteAgentEpi(a);
+  if (anciens.length) h += `<details class="bloc"><summary style="cursor:pointer"><b>Anciens agents (${anciens.length})</b></summary>
+    ${anciens.map(a => `<div class="ligne-admin"><div><b>${esc(nomAgent(a))}</b><small>${esc(a.fonction) || '&nbsp;'}</small></div>
+      ${peutSaisir() ? `<button class="petit secondaire" onclick="App.formAgentEpi('${a.id}')">Modifier</button>` : ''}
+      <button class="petit secondaire" onclick="App.historiqueEpi('${a.id}')">Historique</button></div>`).join('')}</details>`;
+  return h;
+}
+function carteAgentEpi(a){
+  const ds = enService(a.id).map(d => ({ d, art:articleEpi(d.article_id), k:etatEpi(d), ech:echeanceEpi(d) }))
+    .sort((x, y) => triArticles(x.art || {}, y.art || {}));
+  const manq = manquantsEpi(a.id);
+  const tailles = [['Chaussures', a.taille_chaussures], ['Haut', a.taille_haut], ['Bas', a.taille_bas], ['Gants', a.taille_gants]].filter(x => x[1]);
+  let h = `<div class="bloc"><div class="plan-tete"><div><b>${esc(nomAgent(a))}</b>${a.fonction ? `<br><span class="sous">${esc(a.fonction)}</span>` : ''}</div>
+    ${ds.some(x => x.k === 'retard') ? etiquetteEpi('retard') : ds.some(x => x.k === 'bientot') ? etiquetteEpi('bientot') : ''}</div>
+    ${tailles.length ? `<p class="aide" style="margin:4px 0 0">Tailles : ${tailles.map(([k, v]) => `${k} ${esc(v)}`).join(' · ')}</p>` : ''}`;
+  if (!ds.length && !manq.length) h += `<p class="aide">Aucun EPI enregistré.</p>`;
+  if (ds.length || manq.length) h += `<ul class="lignes" style="margin:8px -14px 0">${ds.map(x => `<li tabindex="0" role="button" onclick="App.ficheDotationEpi('${x.d.id}')">
+      <span class="pastille ${ETATS_EPI[x.k][0]}" aria-hidden="true"></span>
+      <div><b>${esc(x.art?.libelle || 'Article supprimé')}${x.d.quantite > 1 ? ` × ${x.d.quantite}` : ''}</b>
+        <small>Perçu le ${fmt(x.d.date_perception)}${x.d.taille ? `, taille ${esc(x.d.taille)}` : ''}</small>
+        <small>${x.ech ? `Renouvellement ${x.k === 'retard' ? 'dépassé depuis le' : 'le'} ${fmt(x.ech)}` : "Remplacement à l'usure"}</small></div>
+      ${etiquetteEpi(x.k)}</li>`).join('')}
+    ${manq.map(art => `<li tabindex="0" role="button" onclick="${peutSaisir() ? `App.formDotationEpi(null,'${a.id}','${art.id}')` : ''}">
+      <span class="pastille s-planifier" aria-hidden="true"></span>
+      <div><b>${esc(art.libelle)}</b><small>Dotation prévue : ${art.quantite_dotation}, aucune remise en service enregistrée</small></div>${etiquetteEpi('manquant')}</li>`).join('')}</ul>`;
+  h += `<div class="actions">
+    ${peutSaisir() ? `<button class="petit" onclick="App.formDotationEpi(null,'${a.id}')">Remettre un EPI</button>` : ''}
+    <button class="petit secondaire" onclick="App.imprimerEpi('${a.id}')">Fiche de dotation</button>
+    <button class="petit secondaire" onclick="App.historiqueEpi('${a.id}')">Historique</button>
+    ${peutSaisir() ? `<button class="petit secondaire" onclick="App.formAgentEpi('${a.id}')">Modifier l'agent</button>` : ''}</div></div>`;
+  return h;
+}
+
+/* Fiche de dotation imprimable, à faire signer par l'agent */
+function ficheDotationHtml(a){
+  const ds = enService(a.id).map(d => ({ d, art:articleEpi(d.article_id) })).sort((x, y) => triArticles(x.art || {}, y.art || {}));
+  const tailles = [['Chaussures', a.taille_chaussures], ['Haut', a.taille_haut], ['Bas', a.taille_bas], ['Gants', a.taille_gants]].filter(x => x[1]);
+  return `<section style="page-break-after:always">
+    <div class="entete"><h1>Fiche de dotation en équipements de protection individuelle</h1>
+      <p>Commune de Pasly · éditée le ${fmt(aujourdhui())}</p></div>
+    <p><b>Agent :</b> ${esc(nomAgent(a))}${a.fonction ? ` · ${esc(a.fonction)}` : ''}${a.date_entree ? ` · arrivé le ${fmt(a.date_entree)}` : ''}</p>
+    ${tailles.length ? `<p><b>Tailles :</b> ${tailles.map(([k, v]) => `${k} ${esc(v)}`).join(' · ')}</p>` : ''}
+    <h2>Équipements en service</h2>
+    ${ds.length ? `<table><thead><tr><th>Équipement</th><th>Norme</th><th>Qté</th><th>Taille</th><th>Marque, modèle</th><th>Remis le</th><th>À renouveler le</th></tr></thead><tbody>
+      ${ds.map(x => { const e = echeanceEpi(x.d); return `<tr><td>${esc(x.art?.libelle)}</td><td>${esc(x.art?.norme)}</td><td>${x.d.quantite}</td><td>${esc(x.d.taille)}</td>
+        <td>${esc(x.d.marque_modele)}</td><td>${fmt(x.d.date_perception)}</td><td>${e ? fmt(e) : "à l'usure"}</td></tr>`; }).join('')}</tbody></table>` : '<p>Aucun équipement en service.</p>'}
+    <p style="margin-top:10px">L'agent reconnaît avoir reçu les équipements ci-dessus, adaptés à sa taille, et s'engage à les porter dans les situations
+      qui l'exigent, à en prendre soin et à signaler sans délai toute détérioration ou perte (Code du travail, articles R. 4323-91 et suivants).</p>
+    <table style="margin-top:14px"><tr><td style="width:50%;height:70px"><b>Signature de l'agent</b><br>Date :</td><td><b>Pour la commune</b><br>Nom, qualité, date :</td></tr></table>
+  </section>`;
+}
+
+const AppEpi = {
+  /* ----- Agents ----- */
+  formAgentEpi(id){
+    const a = id ? agentEpi(id) : { actif:true };
+    ouvrir(tete(id ? "Modifier l'agent" : 'Nouvel agent') + `
+      <form data-id="${id || nouvelId()}" onsubmit="App.enregistrerAgentEpi(event,'${id || ''}')">
+        <div class="deux"><label>Nom<input name="nom" required value="${esc(a.nom)}"></label>
+          <label>Prénom<input name="prenom" value="${esc(a.prenom)}"></label></div>
+        <div class="deux"><label>Fonction<input name="fonction" value="${esc(a.fonction)}" placeholder="Agent technique polyvalent…"></label>
+          <label>Date d'arrivée<input type="date" name="date_entree" value="${a.date_entree || ''}"></label></div>
+        <fieldset><legend>Tailles</legend>
+          <div class="deux"><label>Chaussures<input name="taille_chaussures" value="${esc(a.taille_chaussures)}" placeholder="ex. 43"></label>
+            <label>Gants<input name="taille_gants" value="${esc(a.taille_gants)}" placeholder="ex. 9"></label></div>
+          <div class="deux"><label>Haut (veste)<input name="taille_haut" value="${esc(a.taille_haut)}" placeholder="ex. L"></label>
+            <label>Bas (pantalon)<input name="taille_bas" value="${esc(a.taille_bas)}" placeholder="ex. 42"></label></div></fieldset>
+        <label>Notes<textarea name="notes" rows="2">${esc(a.notes)}</textarea></label>
+        ${id ? `<label class="case"><input type="checkbox" name="actif" ${a.actif !== false ? 'checked' : ''}>Agent en poste<span class="aide">Décochez au départ de l'agent : ses EPI restent dans l'historique et ne déclenchent plus d'alerte.</span></label>` : ''}
+        <div class="boutons"><button class="principal" type="submit">Enregistrer</button>
+          ${id && estAdmin() && !S.epi.dotations.some(d => d.agent_id === id) ? `<button type="button" class="danger" onclick="App.supprimerAgentEpi('${id}')">Supprimer</button>` : ''}</div>
+      </form>`);
+  },
+  async enregistrerAgentEpi(ev, id){
+    ev.preventDefault();
+    const form = ev.target, f = new FormData(form), b = form.querySelector('button[type=submit]'), t = k => vide(String(f.get(k) ?? '').trim());
+    const d = { nom:t('nom'), prenom:t('prenom'), fonction:t('fonction'), date_entree:t('date_entree'), taille_chaussures:t('taille_chaussures'),
+      taille_haut:t('taille_haut'), taille_bas:t('taille_bas'), taille_gants:t('taille_gants'), notes:t('notes') };
+    if (id) d.actif = f.get('actif') === 'on';
+    b.disabled = true;
+    try {
+      if (id) await q(sb.from('epi_agents').update(d).eq('id', id));
+      else await insererUneFois('epi_agents', { id:form.dataset.id, ...d });
+      toast('Agent enregistré'); fermer(); await chargerEPI(); rendre();
+    } catch (err){ toast(traduire(err), true); b.disabled = false; }
+  },
+  async supprimerAgentEpi(id){
+    if (!await confirmer(`Supprimer définitivement ${nomAgent(agentEpi(id))} ?`)) return;
+    try { await q(sb.from('epi_agents').delete().eq('id', id)); toast('Agent supprimé'); fermer(); await chargerEPI(); rendre(); } catch {}
+  },
+
+  /* ----- Remise d'un EPI (création, modification, renouvellement) ----- */
+  formDotationEpi(id, agentId, articleId, remplaceId){
+    const ancien = remplaceId ? S.epi.dotations.find(x => x.id === remplaceId) : null;
+    const d = id ? S.epi.dotations.find(x => x.id === id)
+      : { agent_id:agentId || ancien?.agent_id, article_id:articleId || ancien?.article_id, date_perception:aujourdhui(), quantite:ancien?.quantite || null,
+          taille:ancien?.taille, marque_modele:ancien?.marque_modele, remis_par:S.profil?.nom };
+    const ag = agentEpi(d.agent_id), arts = S.epi.articles.filter(a => a.actif !== false || a.id === d.article_id).sort(triArticles);
+    if (!arts.length) return toast("Ajoutez d'abord des articles dans le catalogue.", true);
+    const art0 = articleEpi(d.article_id) || arts[0];
+    const tailleDef = art => !ag ? '' : art?.categorie === 'pieds' ? ag.taille_chaussures : art?.categorie === 'mains' ? ag.taille_gants : art?.categorie === 'corps' || art?.categorie === 'haute_visibilite' ? ag.taille_haut : '';
+    ouvrir(tete(id ? "Modifier la remise" : ancien ? "Renouveler l'EPI" : 'Remettre un EPI') + `
+      <p style="margin:-6px 0 14px"><b>${esc(nomAgent(ag))}</b>${ancien ? `<br><span class="sous">Remplace ${esc(articleEpi(ancien.article_id)?.libelle)} perçu le ${fmt(ancien.date_perception)}</span>` : ''}</p>
+      <form data-id="${id || nouvelId()}" onsubmit="App.enregistrerDotationEpi(event,'${id || ''}','${remplaceId || ''}')">
+        <input type="hidden" name="agent_id" value="${d.agent_id}">
+        <label>Équipement<select name="article_id" onchange="App.articleDotationEpi(this)" ${ancien ? 'disabled' : ''}>${arts.map(a => `<option value="${a.id}" ${a.id === art0.id ? 'selected' : ''}
+          data-qte="${a.quantite_dotation || 1}" data-taille="${esc(tailleDef(a))}" data-fab="${a.base_duree === 'fabrication' ? 1 : 0}">${esc(a.libelle)}</option>`).join('')}</select>
+          ${ancien ? `<input type="hidden" name="article_id" value="${ancien.article_id}">` : ''}<span class="aide" data-duree></span></label>
+        <div class="deux"><label>Date de perception<input type="date" name="date_perception" required value="${d.date_perception}" max="${aujourdhui()}" oninput="App.articleDotationEpi(this.form.querySelector('select[name=article_id]'))"></label>
+          <label>Quantité<input name="quantite" inputmode="numeric" required value="${d.quantite || art0.quantite_dotation || 1}"></label></div>
+        <div class="deux"><label>Taille<input name="taille" value="${esc(d.taille ?? tailleDef(art0))}"></label>
+          <label>Marque, modèle<input name="marque_modele" value="${esc(d.marque_modele)}"></label></div>
+        <label data-fab ${art0.base_duree === 'fabrication' ? '' : 'hidden'}>Date de fabrication<input type="date" name="date_fabrication" value="${d.date_fabrication || ''}" oninput="App.articleDotationEpi(this.form.querySelector('select[name=article_id]'))">
+          <span class="aide">Inscrite sur l'équipement (casque, harnais) : la durée de vie se compte depuis cette date.</span></label>
+        <label>Date de renouvellement<input type="date" name="date_renouvellement" value="${d.date_renouvellement || ''}">
+          <span class="aide">Laissez vide pour la date calculée ci-dessus.</span></label>
+        <div class="deux"><label>Coût TTC (€)<input name="cout_ttc" inputmode="decimal" value="${d.cout_ttc ?? ''}"></label>
+          <label>Remis par<input name="remis_par" value="${esc(d.remis_par)}"></label></div>
+        ${id ? `<label>Statut<select name="statut" onchange="this.form.querySelector('[data-fin]').hidden = this.value === 'en_service'">${Object.entries(STATUTS_EPI).map(([k, l]) => `<option value="${k}" ${k === d.statut ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <div class="deux" data-fin ${d.statut === 'en_service' ? 'hidden' : ''}><label>Depuis le<input type="date" name="date_fin" value="${d.date_fin || ''}" max="${aujourdhui()}"></label>
+            <label>Motif<input name="motif_fin" value="${esc(d.motif_fin)}" placeholder="Usure, perte, casse…"></label></div>` : ''}
+        ${ancien ? `<label>Motif du remplacement<select name="motif_ancien"><option value="remplace">Fin de durée de vie</option><option value="use">Usé avant terme</option><option value="perdu">Perdu</option></select></label>` : ''}
+        <label>Notes<textarea name="notes" rows="2">${esc(d.notes)}</textarea></label>
+        <div class="boutons"><button class="principal" type="submit">Enregistrer</button>
+          ${id && estAdmin() ? `<button type="button" class="danger" onclick="App.supprimerDotationEpi('${id}')">Supprimer</button>` : ''}</div>
+      </form>`);
+    const sel = $('#modalContenu select[name=article_id]'); if (sel) AppEpi.articleDotationEpi(sel, true);
+  },
+  /* Met à jour l'aide (date calculée), la quantité et la taille proposées selon l'article choisi */
+  articleDotationEpi(sel, init){
+    const f = sel.form, art = articleEpi(sel.value), o = sel.selectedOptions[0];
+    if (!init && o){ f.quantite.value = o.dataset.qte; if (o.dataset.taille) f.taille.value = o.dataset.taille; }
+    f.querySelector('label[data-fab]').hidden = art?.base_duree !== 'fabrication';
+    const aide = f.querySelector('[data-duree]'); if (!art || !aide) return;
+    const base = art.base_duree === 'fabrication' && f.date_fabrication.value ? f.date_fabrication.value : f.date_perception.value;
+    aide.textContent = !art.duree_vie_mois ? "Remplacement à l'usure, sans date de renouvellement."
+      : `Durée de vie ${art.duree_vie_mois} mois${art.base_duree === 'fabrication' ? ' depuis la fabrication' : ''}${base ? ` : à renouveler le ${fmt(ajoutMois(base, art.duree_vie_mois))}` : ''}.`;
+  },
+  async enregistrerDotationEpi(ev, id, remplaceId){
+    ev.preventDefault();
+    const form = ev.target, f = new FormData(form), b = form.querySelector('button[type=submit]'), t = k => vide(String(f.get(k) ?? '').trim());
+    try {
+      const qte = Number(t('quantite'));
+      if (!Number.isInteger(qte) || qte < 1 || qte > 20) throw new Error('Quantité : nombre entier de 1 à 20.');
+      const d = { agent_id:f.get('agent_id'), article_id:f.get('article_id'), date_perception:f.get('date_perception'), quantite:qte, taille:t('taille'),
+        marque_modele:t('marque_modele'), date_fabrication:t('date_fabrication'), date_renouvellement:t('date_renouvellement'),
+        cout_ttc:nombre(f.get('cout_ttc'), 'Coût', 100000), remis_par:t('remis_par'), notes:t('notes') };
+      if (articleEpi(d.article_id)?.base_duree !== 'fabrication') d.date_fabrication = null;
+      if (d.date_fabrication && d.date_fabrication > d.date_perception) throw new Error('La date de fabrication ne peut pas suivre la date de perception.');
+      if (d.date_renouvellement && d.date_renouvellement <= d.date_perception) throw new Error('La date de renouvellement doit suivre la date de perception.');
+      if (id){
+        d.statut = f.get('statut');
+        if (d.statut === 'en_service'){ d.date_fin = null; d.motif_fin = null; }
+        else { d.date_fin = t('date_fin') || aujourdhui(); d.motif_fin = t('motif_fin');
+          if (d.date_fin < d.date_perception) throw new Error('La date de fin ne peut pas précéder la perception.'); }
+      }
+      const ancien = remplaceId ? S.epi.dotations.find(x => x.id === remplaceId) : null;
+      if (ancien && d.date_perception < ancien.date_perception) throw new Error("La nouvelle remise ne peut pas précéder l'ancienne.");
+      b.disabled = true;
+      if (id) await q(sb.from('epi_dotations').update(d).eq('id', id));
+      else await insererUneFois('epi_dotations', { id:form.dataset.id, ...d });
+      if (ancien && ancien.statut === 'en_service')
+        await q(sb.from('epi_dotations').update({ statut:f.get('motif_ancien') || 'remplace', date_fin:d.date_perception, motif_fin:'Remplacé par une nouvelle remise' }).eq('id', ancien.id));
+      toast(ancien ? 'EPI renouvelé' : 'Remise enregistrée'); fermer(); await chargerEPI(); rendre();
+    } catch (err){ toast(traduire(err), true); b.disabled = false; }
+  },
+  async supprimerDotationEpi(id){
+    if (!await confirmer('Supprimer définitivement cette remise ? Pour un EPI remplacé ou perdu, changez plutôt son statut afin de garder la trace.')) return;
+    try { await q(sb.from('epi_dotations').delete().eq('id', id)); toast('Remise supprimée'); fermer(); await chargerEPI(); rendre(); } catch {}
+  },
+  ficheDotationEpi(id){
+    const d = S.epi.dotations.find(x => x.id === id); if (!d) return;
+    const art = articleEpi(d.article_id), ech = echeanceEpi(d), k = d.statut === 'en_service' ? etatEpi(d) : null;
+    const infos = [['Agent', nomAgent(agentEpi(d.agent_id))], ['Perçu le', fmt(d.date_perception)], ['Quantité', d.quantite], ['Taille', d.taille],
+      ['Marque, modèle', d.marque_modele], ['Norme', art?.norme], ['Fabriqué le', d.date_fabrication ? fmt(d.date_fabrication) : null],
+      ['Renouvellement', ech ? fmt(ech) + (d.date_renouvellement ? ' (saisi)' : '') : "à l'usure"],
+      ['Coût TTC', d.cout_ttc != null && voitFinances() ? fmtNb(d.cout_ttc, '€') : null], ['Remis par', d.remis_par],
+      ['Statut', STATUTS_EPI[d.statut] + (d.date_fin ? ` le ${fmt(d.date_fin)}` : '') + (d.motif_fin ? ` : ${d.motif_fin}` : '')], ['Notes', d.notes]].filter(x => x[1] != null && x[1] !== '');
+    ouvrir(tete(esc(art?.libelle || 'EPI')) + `<div class="bloc">${k ? `<div class="plan-tete"><span></span>${etiquetteEpi(k)}</div>` : ''}
+      <dl class="infos">${infos.map(([a, v]) => `<dt>${a}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+      ${art?.notes ? `<p class="aide" style="margin:8px 0 0">${esc(art.notes)}</p>` : ''}</div>
+      ${peutSaisir() ? `<div class="actions">${d.statut === 'en_service' ? `<button class="principal" onclick="App.formDotationEpi(null,null,null,'${d.id}')">Renouveler</button>` : ''}
+        <button class="secondaire" onclick="App.formDotationEpi('${d.id}')">Modifier</button></div>` : ''}`);
+  },
+  historiqueEpi(agentId){
+    const a = agentEpi(agentId), ds = S.epi.dotations.filter(d => d.agent_id === agentId);
+    ouvrir(tete('Historique des remises') + `<p style="margin:-6px 0 14px"><b>${esc(nomAgent(a))}</b></p>
+      ${ds.length ? `<ul class="lignes bloc" style="padding:0">${ds.map(d => `<li tabindex="0" role="button" onclick="App.ficheDotationEpi('${d.id}')">
+        <div><b>${esc(articleEpi(d.article_id)?.libelle)}${d.quantite > 1 ? ` × ${d.quantite}` : ''}</b><small>Perçu le ${fmt(d.date_perception)}${d.date_fin ? `, fin le ${fmt(d.date_fin)}` : ''}</small></div>
+        <span class="etiquette ${d.statut === 'en_service' ? ETATS_EPI[etatEpi(d)][0] : 's-planifier'}">${STATUTS_EPI[d.statut]}</span></li>`).join('')}</ul>` : '<p class="vide">Aucune remise enregistrée.</p>'}`);
+  },
+
+  /* ----- Catalogue ----- */
+  catalogueEpi(){
+    const arts = [...S.epi.articles].sort(triArticles);
+    ouvrir(tete('Catalogue des EPI') + `<p class="aide" style="margin:-6px 0 10px">Durées indicatives : la notice du fabricant fait foi. « Dotation » est la quantité remise à chaque agent ; à 0, l'article est remis à la demande et n'apparaît pas comme « non perçu ».</p>
+      <div class="bloc">${arts.map(a => `<div class="ligne-admin"><div><b>${esc(a.libelle)}</b><small>${esc([CAT_EPI[a.categorie], a.norme,
+        a.duree_vie_mois ? `${a.duree_vie_mois} mois${a.base_duree === 'fabrication' ? ' depuis fabrication' : ''}` : "à l'usure", a.quantite_dotation ? `dotation ${a.quantite_dotation}` : 'à la demande'].filter(Boolean).join(' · '))}${a.actif === false ? ', retiré' : ''}</small></div>
+        ${peutSaisir() ? `<button class="petit secondaire" onclick="App.formArticleEpi('${a.id}')">Modifier</button>` : ''}</div>`).join('') || '<p class="aide">Aucun article.</p>'}
+        ${peutSaisir() ? `<button class="petit principal" style="margin-top:8px" onclick="App.formArticleEpi()">Ajouter un article</button>` : ''}</div>`);
+  },
+  formArticleEpi(id){
+    const a = id ? articleEpi(id) : { categorie:'corps', base_duree:'perception', quantite_dotation:1, rappel_jours:30, duree_vie_mois:12, actif:true };
+    const opt = (o, sel) => Object.entries(o).map(([k, l]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(l)}</option>`).join('');
+    ouvrir(tete(id ? "Modifier l'article" : 'Nouvel article') + `
+      <form data-id="${id || nouvelId()}" onsubmit="App.enregistrerArticleEpi(event,'${id || ''}')">
+        <label>Libellé<input name="libelle" required value="${esc(a.libelle)}" placeholder="ex. Chaussures de sécurité"></label>
+        <div class="deux"><label>Catégorie<select name="categorie">${opt(CAT_EPI, a.categorie)}</select></label>
+          <label>Norme<input name="norme" value="${esc(a.norme)}" placeholder="ex. EN ISO 20345"></label></div>
+        <div class="deux"><label>Durée de vie (mois)<input name="duree_vie_mois" inputmode="numeric" value="${a.duree_vie_mois ?? ''}"><span class="aide">Vide : remplacement à l'usure.</span></label>
+          <label>Compter depuis<select name="base_duree">${opt({ perception:'La perception', fabrication:'La fabrication' }, a.base_duree)}</select></label></div>
+        <div class="deux"><label>Dotation par agent<input name="quantite_dotation" inputmode="numeric" required value="${a.quantite_dotation ?? 1}"></label>
+          <label>Alerter (jours avant)<input name="rappel_jours" inputmode="numeric" required value="${a.rappel_jours ?? 30}"></label></div>
+        <label>Ordre d'affichage<input name="ordre" inputmode="numeric" value="${a.ordre ?? 0}"></label>
+        <label>Notes<textarea name="notes" rows="2">${esc(a.notes)}</textarea></label>
+        ${id ? `<label class="case"><input type="checkbox" name="actif" ${a.actif !== false ? 'checked' : ''}>Article en usage</label>` : ''}
+        <div class="boutons"><button class="principal" type="submit">Enregistrer</button>
+          ${id && estAdmin() && !S.epi.dotations.some(d => d.article_id === id) ? `<button type="button" class="danger" onclick="App.supprimerArticleEpi('${id}')">Supprimer</button>` : ''}</div>
+      </form>`);
+  },
+  async enregistrerArticleEpi(ev, id){
+    ev.preventDefault();
+    const form = ev.target, f = new FormData(form), b = form.querySelector('button[type=submit]'), t = k => vide(String(f.get(k) ?? '').trim());
+    try {
+      const entier = (k, l, min, max) => { const v = t(k); if (v == null) return null; const n = Number(v); if (!Number.isInteger(n) || n < min || n > max) throw new Error(`${l} : nombre entier de ${min} à ${max}.`); return n; };
+      const d = { libelle:t('libelle'), categorie:f.get('categorie'), norme:t('norme'), duree_vie_mois:entier('duree_vie_mois', 'Durée de vie', 1, 240),
+        base_duree:f.get('base_duree'), quantite_dotation:entier('quantite_dotation', 'Dotation', 0, 20) ?? 0, rappel_jours:entier('rappel_jours', 'Alerte', 0, 365) ?? 30,
+        ordre:entier('ordre', 'Ordre', -1000, 100000) ?? 0, notes:t('notes') };
+      if (id) d.actif = f.get('actif') === 'on';
+      if (S.epi.articles.some(x => x.id !== id && norm(x.libelle).trim() === norm(d.libelle))) throw new Error('Un article porte déjà ce libellé.');
+      b.disabled = true;
+      if (id) await q(sb.from('epi_articles').update(d).eq('id', id));
+      else await insererUneFois('epi_articles', { id:form.dataset.id, ...d });
+      toast('Article enregistré'); await chargerEPI(); rendre(); App.catalogueEpi();
+    } catch (err){ toast(traduire(err), true); b.disabled = false; }
+  },
+  async supprimerArticleEpi(id){
+    if (!await confirmer(`Supprimer définitivement l'article « ${articleEpi(id)?.libelle} » ?`)) return;
+    try { await q(sb.from('epi_articles').delete().eq('id', id)); toast('Article supprimé'); await chargerEPI(); rendre(); App.catalogueEpi(); } catch {}
+  },
+
+  /* ----- Impression et export ----- */
+  imprimerEpi(agentId){
+    fermer();
+    const liste = agentId ? [agentEpi(agentId)].filter(Boolean) : agentsActifs();
+    $('#impression').innerHTML = liste.map(ficheDotationHtml).join('');
+    document.body.classList.add('imprime');
+    const fin = () => { document.body.classList.remove('imprime'); $('#impression').innerHTML = ''; window.removeEventListener('afterprint', fin); };
+    window.addEventListener('afterprint', fin);
+    window.print();
+  },
+  csvEpi(){
+    const c = celluleCSV, lignes = [['Agent','Fonction','Équipement','Norme','Quantité','Taille','Marque, modèle','Perçu le','Fabriqué le','À renouveler le','État','Statut','Fin le','Motif','Coût TTC','Remis par']];
+    const agents = Object.fromEntries(S.epi.agents.map(a => [a.id, a]));
+    for (const d of S.epi.dotations){
+      const a = agents[d.agent_id], art = articleEpi(d.article_id), e = echeanceEpi(d);
+      lignes.push([nomAgent(a), a?.fonction, art?.libelle, art?.norme, d.quantite, d.taille, d.marque_modele, d.date_perception, d.date_fabrication, e,
+        d.statut === 'en_service' ? ETATS_EPI[etatEpi(d)][1] : '', STATUTS_EPI[d.statut], d.date_fin, d.motif_fin,
+        voitFinances() && d.cout_ttc != null ? String(d.cout_ttc).replace('.', ',') : '', d.remis_par]);
+    }
+    telecharger(`epi-agents-pasly-${aujourdhui()}.csv`, '﻿' + lignes.map(l => l.map(c).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
   },
 };
 
@@ -6551,7 +6900,7 @@ const App = {
     telecharger(`${selection ? 'selection' : 'echeances'}-controles-pasly-${aujourdhui()}.csv`, '\ufeff' + lignes.map(l => l.map(c).join(';')).join('\r\n'), 'text/csv;charset=utf-8');
   },
 };
-Object.assign(App, AppDeci, AppAst);
+Object.assign(App, AppDeci, AppAst, AppEpi);
 window.App = App;
 
 $('#confirmation').addEventListener('click', e => {
