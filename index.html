@@ -1396,7 +1396,7 @@ function registreImpression(d){
   h += `<h2>4. Vérifications techniques</h2>` + t(['Date', 'Vérification', 'Équipement', 'Intervenant', 'Résultat', 'Observations et suite'],
     ctr.map(c => { const pl = d.plan[c.plan_id], e = pl && d.eq[pl.equipement_id];
       return [fmt(c.date_realisation), esc(pl?.libelle || ''), esc(e?.nom || ''), esc(c.intervenant || ''), RESULTATS[c.resultat],
-        esc(c.observations || '') + (c.resultat !== 'conforme' ? (c.reserve_levee ? ` — réserve levée le ${fmt(c.date_levee)}` : ' — réserve non levée') : '')]; }));
+        esc(c.observations || '') + (c.resultat !== 'conforme' ? (c.reserve_levee ? ` — réserve levée le ${fmt(c.date_levee)}${c.commentaire_levee ? ` (${esc(c.commentaire_levee)})` : ''}` : ' — réserve non levée') : '')]; }));
   h += `<h2>5. Travaux d'aménagement et de transformation</h2>` + t(['Fin des travaux', 'Objet', 'Entreprise', 'Compte rendu'],
     trav.map(i => [i.date_fin_reelle ? fmt(i.date_fin_reelle) : '', esc(i.objet), esc(i.prestataires?.nom || ''), esc((i.compte_rendu || '').slice(0, 300))]));
   h += `<h2>6. Exercices et formations</h2>` + t(['Date', 'Type', 'Intitulé et participants', 'Durée', 'Observations, anomalies'],
@@ -1612,7 +1612,7 @@ async function rejouer(item){
     if (error && !(await verifierIncident(item.id))) throw error;
     if (fichiers.length && await envoyerFichiers(item.id, item.lot, fichiers, null, null, cibleIncident('photo_signalement'))) throw new Error(fichiers.find(x => x.etat === 'erreur')?.message || "Photos non envoyées");
   } else if (item.type === 'levee'){
-    await q(sb.from('controles').update({ reserve_levee:true, date_levee:D.date_levee }).eq('id', D.controleId));
+    await q(sb.from('controles').update({ reserve_levee:true, date_levee:D.date_levee, ...(D.commentaire ? { commentaire_levee:D.commentaire } : {}) }).eq('id', D.controleId));
   }
 }
 /* Données de consultation conservées pour une ouverture sans réseau (aucun montant, aucun contact) */
@@ -1646,6 +1646,31 @@ function lireMontant(v, libelle){
   if (!t) return null;
   if (!/^\d+(\.\d{1,2})?$/.test(t)) throw new Error(`${libelle} : montant invalide (nombre positif, 2 décimales maximum).`);
   return Number(t);
+}
+/* Incidents nés d'un contrôle avec réserves (table incident_controles) */
+function blocIncidentsLies(liste){
+  if (!liste || !liste.length) return '';
+  return `<p class="meta">Incident${liste.length > 1 ? 's' : ''} lié${liste.length > 1 ? 's' : ''} : ${liste.map(i =>
+    `<button class="lien" onclick="App.ficheIncident('${i.id}')">${esc(i.titre)}</button> (${esc((STATUTS_INC[i.statut] || i.statut).toLowerCase())})`).join(', ')}</p>`;
+}
+/* Quand le dernier incident lié à un contrôle est résolu, proposer de lever sa réserve */
+async function proposerLevee(incId){
+  if (!peutSaisir()) return;
+  try {
+    const l = await sb.from('incident_controles').select('controle_id').eq('incident_id', incId);
+    if (l.error || !l.data.length) return;
+    const ids = l.data.map(x => x.controle_id);
+    const [cr, lr] = await Promise.all([
+      sb.from('controles').select('id, date_realisation, resultat, reserve_levee, plans(libelle, equipement_id, equipements(nom))').in('id', ids),
+      sb.from('incident_controles').select('controle_id, incidents(statut)').in('controle_id', ids)]);
+    if (cr.error || lr.error) return;
+    for (const c of cr.data.filter(c => c.resultat !== 'conforme' && !c.reserve_levee)){
+      if (lr.data.some(x => x.controle_id === c.id && x.incidents && ouvert(x.incidents))) continue;
+      const nom = c.plans?.equipements?.nom || '?';
+      if (!await confirmer(`Tous les incidents liés au contrôle du ${fmt(c.date_realisation)} (${nom}) sont résolus.\n\nLever la réserve de ce contrôle ?`)) continue;
+      return App.leverReserve(c.id, c.plans?.equipement_id || '', 'Incidents liés résolus.');
+    }
+  } catch {}
 }
 async function verifierIncident(id){
   const { data, error } = await sb.from('incidents').select('id').eq('id', id).maybeSingle();
@@ -2804,12 +2829,16 @@ async function vueReserves(){
     .order('date_realisation', { ascending:true }));
   let h = `<h1>Réserves à lever</h1>`;
   if (!liste.length) return h + `<p class="vide">Aucune réserve en attente. Tous les contrôles avec réserves ont été traités.</p>`;
+  const liens = {};
+  const r = await sb.from('incident_controles').select('controle_id, incidents(id, titre, statut)').in('controle_id', liste.map(c => c.id));
+  if (!r.error) for (const l of r.data) if (l.incidents) (liens[l.controle_id] ??= []).push(l.incidents);
   return h + `<div class="liste" style="margin-top:12px">${liste.map(c => `
     <div class="bloc histo r-${c.resultat}">
       <div class="histo-tete"><b>${esc(c.plans?.libelle)}</b><span class="res">${RESULTATS[c.resultat]}</span></div>
       <p class="sous">${esc(c.plans?.equipements?.nom)}, ${esc(c.plans?.equipements?.sites?.nom)}</p>
       <p>Contrôle du ${fmt(c.date_realisation)}${c.intervenant ? `, par ${esc(c.intervenant)}` : ''}</p>
       ${c.observations ? `<p class="obs">${esc(c.observations)}</p>` : ''}
+      ${blocIncidentsLies(liens[c.id])}
       <div class="actions">
         ${peutSaisir() ? `<button class="petit" onclick="App.leverReserve('${c.id}')">Lever la réserve</button>` : ''}
         <button class="petit secondaire" onclick="App.fiche('${c.plans?.equipement_id}')">Voir l'équipement</button>
@@ -4479,13 +4508,17 @@ const App = {
     if (!e) return;
     const site = S.sites.find(s => s.id === e.site_id);
     ouvrir('<p class="chargement">Chargement…</p>');
-    let plans, hist = [];
+    let plans, hist = [], liensInc = {};
     try {
       plans = await q(sb.from('plans').select(COLS_PLAN).eq('equipement_id', id).order('libelle'));
       const ct = await contactsPlans(); plans.forEach(p => { p.contact = ct[p.id] ?? null; });
       if (plans.length) hist = await q(sb.from('controles').select('*, documents(*), profils(nom)')
         .in('plan_id', plans.map(p => p.id)).order('date_realisation', { ascending:false }).limit(100));
       await completerGroupes(hist);
+      if (hist.length){
+        const r = await sb.from('incident_controles').select('controle_id, incidents(id, titre, statut)').in('controle_id', hist.map(c => c.id));
+        if (!r.error) for (const l of r.data) if (l.incidents) (liensInc[l.controle_id] ??= []).push(l.incidents);
+      }
     } catch (err){ if (estErreurReseau(err)) return ficheHorsLigne(e); return fermer(); }
     const ech = Object.fromEntries(S.echeances.filter(x => x.equipement_id === id).map(x => [x.plan_id, x]));
     const libPlan = Object.fromEntries(plans.map(p => [p.id, p.libelle]));
@@ -4532,11 +4565,12 @@ const App = {
         <p>${esc(libPlan[c.plan_id])}${c.intervenant ? `, par ${esc(c.intervenant)}` : ''}</p>
         ${c.mesures ? `<p class="meta">${esc(resumeMesures(c.mesures))}</p>` : ''}
         ${c.observations ? `<p class="obs">${esc(c.observations)}</p>` : ''}
-        ${c.resultat !== 'conforme' ? (c.reserve_levee ? `<p class="leve">Réserve levée le ${fmt(c.date_levee)}</p>` : `<p class="alerte">Réserve non levée</p>`) : ''}
+        ${c.resultat !== 'conforme' ? (c.reserve_levee ? `<p class="leve">Réserve levée le ${fmt(c.date_levee)}${c.commentaire_levee ? ` : ${esc(c.commentaire_levee)}` : ''}</p>` : `<p class="alerte">Réserve non levée</p>`) : ''}
+        ${blocIncidentsLies(liensInc[c.id])}
         ${(c.documents || []).map(d => `<button class="doc" onclick="${lienDoc(d.chemin, 'rapports')}">📎 ${esc(d.nom || 'Document')}</button>`).join('')}
         ${blocGroupe(c, e.id)}
-        ${peutSaisir() ? `<div class="actions"><button class="petit secondaire" onclick="App.ajouterDoc('${c.id}','${e.id}')">Ajouter un document</button></div>` : ''}
-        <p class="discret">Saisi par ${esc(c.profils?.nom || 'un utilisateur supprimé')}</p>
+        ${peutSaisir() ? `<div class="actions">${c.resultat !== 'conforme' && !c.reserve_levee ? `<button class="petit" onclick="App.leverReserve('${c.id}','${e.id}')">Lever la réserve</button>` : ''}<button class="petit secondaire" onclick="App.ajouterDoc('${c.id}','${e.id}')">Ajouter un document</button></div>` : ''}
+        <p class="discret">${c.saisi_par ? `Saisi par ${esc(c.profils?.nom || 'un utilisateur supprimé')}` : 'Saisie importée (auteur non renseigné)'}</p>
         ${estAdmin() ? `<button class="lien danger" onclick="App.supprimerControle('${c.id}','${e.id}')">Supprimer ce contrôle</button>` : ''}
       </div>`;
     }
@@ -4820,25 +4854,30 @@ const App = {
       await recharger(); App.fiche(eqId);
     } catch (err){ toast(traduire(err), true); }
   },
-  leverReserve(id){
+  leverReserve(id, eqId = '', commentaire = ''){
     ouvrir(tete('Lever la réserve') + `
-      <form onsubmit="App.enregistrerLevee(event,'${id}')">
+      <form onsubmit="App.enregistrerLevee(event,'${id}','${eqId || ''}')">
         <label>Date de levée<input type="date" name="date_levee" required value="${aujourdhui()}" max="${aujourdhui()}"></label>
+        <label>Commentaire (facultatif)<textarea name="commentaire" rows="3" maxlength="1000" placeholder="Ex. : 9 grilles remplacées par Proludic, facture n°…">${esc(commentaire)}</textarea></label>
+        <p class="aide">Un justificatif (facture, photo) peut ensuite être ajouté avec « Ajouter un document » sur le contrôle.</p>
         <button class="principal" type="submit">Lever la réserve</button>
       </form>`);
   },
-  async enregistrerLevee(ev, id){
+  async enregistrerLevee(ev, id, eqId = ''){
     ev.preventDefault();
+    const f = new FormData(ev.target), maj = { reserve_levee:true, date_levee:f.get('date_levee') };
+    const com = (f.get('commentaire') || '').trim(); if (com) maj.commentaire_levee = com;
     if (!navigator.onLine){
-      await enfiler({ id:'levee-' + id, type:'levee', libelle:'Levée de réserve', donnees:{ controleId:id, date_levee:new FormData(ev.target).get('date_levee') } });
+      await enfiler({ id:'levee-' + id, type:'levee', libelle:'Levée de réserve', donnees:{ controleId:id, date_levee:maj.date_levee, commentaire:com || null } });
       fermer(); return toast('Levée enregistrée sur ce téléphone : elle sera envoyée au retour du réseau.');
     }
     try {
-      await q(sb.from('controles').update({ reserve_levee:true, date_levee:new FormData(ev.target).get('date_levee') }).eq('id', id));
+      const r = await q(sb.from('controles').update(maj).eq('id', id).select('id'));
+      if (!r || !r.length) throw new Error('Levée refusée : contrôle introuvable ou droits insuffisants.');
       const ret = S.retourBatiment;
       fermer(); toast('Réserve levée'); await recharger();
-      if (ret) App.ficheBatiment(ret);
-    } catch {}
+      if (eqId) App.fiche(eqId); else if (ret) App.ficheBatiment(ret);
+    } catch (err){ toast(traduire(err), true); }
   },
 
   /* Administration */
@@ -6156,7 +6195,8 @@ const App = {
       ? `L'intervention est terminée.${autres ? ` Attention : ${autres} autre${autres > 1 ? 's' : ''} intervention${autres > 1 ? 's' : ''} liée${autres > 1 ? 's' : ''} ${autres > 1 ? 'sont' : 'est'} encore en cours.` : ''}\n\nPasser l'incident « ${inc.titre} » (${STATUTS_INC[inc.statut]}) en « Résolu » ?`
       : `L'intervention démarre.\n\nPasser l'incident « ${inc.titre} » (${STATUTS_INC[inc.statut]}) en « En cours » ?`;
     if (!await confirmer(msg)) return toast("Statut de l'incident inchangé.");
-    try { await majIncident(incId, { statut:cible }); await chargerIncidents(); toast(`Incident passé en « ${STATUTS_INC[cible]} »`); }
+    try { await majIncident(incId, { statut:cible }); await chargerIncidents(); toast(`Incident passé en « ${STATUTS_INC[cible]} »`);
+      if (cible === 'resolu') await proposerLevee(incId); }
     catch (err){ toast("Incident non modifié : " + traduire(err), true); }
   },
   formClotureInt(id){
@@ -6487,7 +6527,8 @@ const App = {
     if (!i || nouveau === i.statut) return toast('Le statut est déjà « ' + STATUTS_INC[nouveau] + ' ».');
     if (nouveau === 'cloture' && !await confirmer("Clôturer cet incident ? Seul un administrateur pourra ensuite le modifier.")) return;
     bouton.disabled = true; bouton.textContent = '…';
-    try { await majIncident(id, { statut:nouveau }); toast('Statut : ' + STATUTS_INC[nouveau]); await chargerIncidents(); if (S.vue === 'incidents') majIncidents(); App.ficheIncident(id); }
+    try { await majIncident(id, { statut:nouveau }); toast('Statut : ' + STATUTS_INC[nouveau]); await chargerIncidents(); if (S.vue === 'incidents') majIncidents(); App.ficheIncident(id);
+      if (!ouvert({ statut:nouveau }) && ouvert(i)) await proposerLevee(id); }
     catch (err){ toast(traduire(err), true); bouton.disabled = false; bouton.textContent = 'Appliquer'; }
   },
 
