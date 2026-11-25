@@ -358,6 +358,13 @@ fieldset.montant legend{padding:0 4px}
 #retourBat{display:block;margin:-6px 0 8px}
 #retourBat[hidden]{display:none}
 #impression{display:none}
+.saisie-cv{overflow-x:auto;margin:0 -4px 10px}
+.saisie-cv table{border-collapse:collapse;width:100%;min-width:560px;font-size:.9rem}
+.saisie-cv th{text-align:left;font-weight:600;padding:4px;border-bottom:1px solid var(--bord,#ccc);white-space:nowrap}
+.saisie-cv td{padding:3px 4px;border-bottom:1px solid var(--bord,#e3e3e3);vertical-align:middle}
+.saisie-cv input,.saisie-cv select{margin:0;padding:6px;width:100%;min-width:0;box-sizing:border-box}
+.saisie-cv td.n{width:78px}.saisie-cv td.e{width:130px}.saisie-cv td.m{width:105px}
+.saisie-cv tr.modif td{background:rgba(255,200,0,.12)}
 .etiq{display:flex;gap:2.5mm;align-items:center;height:100%;padding:2mm 3mm;box-sizing:border-box;overflow:hidden;font-family:Arial,sans-serif;color:#000;background:#fff}
 .etiq-qr{flex:none}.etiq-qr svg{width:100%;height:100%;display:block}
 .etiq-txt{display:flex;flex-direction:column;gap:1mm;min-width:0;font-size:8pt;line-height:1.15}
@@ -1753,7 +1760,10 @@ async function chargerDonneesBat(id){
   const plan = Object.fromEntries(plans.map(p => [p.id, p]));
   const eq = Object.fromEntries(eqs.map(e => [e.id, e]));
   await completerGroupes(controles);
-  return { site, eqs, plan, eq, controles,
+  const liensInc = {}, idsRes = controles.filter(c => c.resultat !== 'conforme').map(c => c.id);
+  if (idsRes.length){ const r = await sb.from('incident_controles').select('controle_id, incidents(titre, statut)').in('controle_id', idsRes);
+    if (!r.error) for (const l of r.data) if (l.incidents) (liensInc[l.controle_id] ??= []).push(l.incidents); }
+  return { site, eqs, plan, eq, controles, liensInc,
     docsInc:(docsInc || []).filter(docVisible), docsInt:(docsInt || []).filter(docVisible),
     docsSite: docsSite === null ? null : docsSite.filter(docVisible) };
 }
@@ -1825,7 +1835,8 @@ function rendreBat(){
     <button class="fermer" onclick="App.fermer()" aria-label="Fermer">✕</button></div>
   <div class="bat-outils">
     <label>Période<select id="fbPeriode" onchange="App.periodeBat(this.value)">${Object.entries(PERIODES_BAT).map(([k, v]) => opt(k, v, S.fb.periode)).join('')}</select></label>
-    <button class="secondaire" onclick="App.imprimerBatiment()">Imprimer / PDF</button>
+    <button class="secondaire" onclick="App.imprimerBatiment('synthese')" title="1 à 2 pages, sans montants : pour la commission de sécurité, un assureur, un élu">Fiche de synthèse (PDF)</button>
+    <button class="secondaire" onclick="App.imprimerBatiment()">Dossier complet (PDF)</button>
     ${S.fb.periode === 'perso' ? `<div class="deux"><label>Du<input type="date" value="${esc(S.fb.du)}" onchange="App.periodeBat('perso', this.value, null)"></label>
       <label>Au<input type="date" value="${esc(S.fb.au)}" onchange="App.periodeBat('perso', null, this.value)"></label></div>` : ''}
   </div>
@@ -1935,6 +1946,54 @@ function rendreBat(){
   }
   S.surBatiment = true; majRetourBat();
   $('#modalContenu').innerHTML = h;
+}
+/* Fiche de synthèse d'un bâtiment : situation à date, sans montants ni noms d'utilisateurs.
+   Destinée à un lecteur extérieur (commission de sécurité, assureur, élus). */
+function ficheSyntheseBat(liens = {}){
+  const d = S.fbData, site = d.site, id = site.id;
+  const ech = S.echeances.filter(e => e.site_id === id);
+  const incs = S.incidents.filter(i => i.site_id === id && ouvert(i));
+  const actifs = d.eqs.filter(e => e.actif);
+  const dernier = {}; for (const c of d.controles) if (!dernier[c.plan_id]) dernier[c.plan_id] = c;     // contrôles triés du plus récent au plus ancien
+  const resOuv = d.controles.filter(c => c.resultat !== 'conforme' && !c.reserve_levee);
+  const lim = (() => { const x = new Date(); x.setFullYear(x.getFullYear() - 1); return isoLocal(x); })();
+  const resLev = d.controles.filter(c => c.reserve_levee && c.date_levee && c.date_levee >= lim);
+  const n = k => ech.filter(e => statut(e) === k).length, aPlan = ech.filter(e => !e.prochaine).length, retard = n('retard');
+  const aJour = ech.length - retard - aPlan;
+  const t = (entetes, lignes, vide = 'Aucun élément.') => lignes.length ? `<table><thead><tr>${entetes.map(x => `<th>${x}</th>`).join('')}</tr></thead><tbody>${lignes.map(l => `<tr>${l.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>` : `<p>${vide}</p>`;
+  const nomEq = c => { const p = d.plan[c.plan_id], e = p && d.eq[p.equipement_id]; return [esc(p?.libelle || ''), esc(e?.nom || '')]; };
+  const f = S.erp?.fiches?.[id];
+  let h = `<div class="entete"><p>Commune de Pasly · Fiche de synthèse de bâtiment</p><h1>${esc(site.nom)}</h1>
+    <p>${site.adresse ? esc(site.adresse) : 'Adresse non renseignée'}</p>
+    <p>Situation au ${fmt(aujourdhui())}.</p></div>`;
+  h += `<div class="chiffres" style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:8px 0">
+    <div><b>${actifs.length}</b>équipement${actifs.length > 1 ? 's' : ''} en service</div>
+    <div><b>${aJour}</b>contrôle${aJour > 1 ? 's' : ''} à jour</div>
+    <div><b>${retard}</b>en retard${aPlan ? ` (+${aPlan} à planifier)` : ''}</div>
+    <div><b>${resOuv.length}</b>réserve${resOuv.length > 1 ? 's' : ''} non levée${resOuv.length > 1 ? 's' : ''}</div>
+    <div><b>${incs.length}</b>incident${incs.length > 1 ? 's' : ''} en cours</div></div>`;
+  if (f?.est_erp){
+    const pv = typeof prochaineVisite === 'function' ? prochaineVisite(id) : null;
+    h += `<h2>Établissement recevant du public</h2><p>Type ${esc(f.type_erp || '—')}, ${f.categorie ? f.categorie + 'ᵉ catégorie' : 'catégorie non renseignée'}.
+      Effectif : ${f.effectif_public ?? '—'} public, ${f.effectif_personnel ?? '—'} personnel.
+      ${pv?.date ? `Prochaine visite de la commission de sécurité : ${fmt(pv.date)}.` : ''}</p>`;
+  }
+  h += `<h2>Situation des contrôles périodiques</h2>` + t(['Équipement', 'Contrôle', 'Périodicité', 'Dernier contrôle', 'Résultat', 'Prochaine échéance'],
+    ech.slice().sort((a, b) => String(a.equipement).localeCompare(String(b.equipement), 'fr') || String(a.libelle).localeCompare(String(b.libelle), 'fr')).map(e => {
+      const c = dernier[e.plan_id];
+      return [esc(e.equipement), esc(e.libelle), perio(e.periodicite_valeur, e.periodicite_unite), c ? fmt(c.date_realisation) : 'Aucun',
+        c ? RESULTATS[c.resultat] + (c.resultat !== 'conforme' ? (c.reserve_levee ? ' (levée)' : ' (non levée)') : '') : '—',
+        e.prochaine ? fmt(e.prochaine) + (statut(e) === 'retard' ? ' <b>(dépassée)</b>' : '') : 'À planifier']; }), 'Aucun contrôle prévu.');
+  h += `<h2>Réserves non levées</h2>` + t(['Contrôle du', 'Équipement', 'Contrôle', 'Observations', 'Suite donnée'],
+    resOuv.map(c => { const [lib, eq] = nomEq(c), li = liens[c.id] || [];
+      return [fmt(c.date_realisation), eq, lib, esc(c.observations || ''),
+        li.length ? li.map(i => `${esc(i.titre)} : ${esc((STATUTS_INC[i.statut] || i.statut).toLowerCase())}`).join('<br>') : 'Non renseignée']; }), 'Aucune réserve en attente.');
+  if (resLev.length) h += `<h2>Réserves levées depuis 12 mois</h2>` + t(['Levée le', 'Équipement', 'Contrôle du', 'Commentaire'],
+    resLev.sort((a, b) => b.date_levee.localeCompare(a.date_levee)).map(c => { const [, eq] = nomEq(c); return [fmt(c.date_levee), eq, fmt(c.date_realisation), esc(c.commentaire_levee || '')]; }));
+  if (S.incidentsErreur !== 'absent') h += `<h2>Incidents en cours</h2>` + t(['Signalé le', 'Incident', 'Équipement', 'Priorité', 'Statut'],
+    incs.sort((a, b) => String(a.date_signalement).localeCompare(String(b.date_signalement))).map(i => [fmt(i.date_signalement), esc(i.titre), esc(d.eq[i.equipement_id]?.nom || '—'), PRIO[i.priorite] || '', STATUTS_INC[i.statut] || '']), 'Aucun incident en cours.');
+  h += `<p style="margin-top:14px;font-size:8.5pt">Document établi à partir du registre de suivi des contrôles de la commune. Les rapports des organismes de contrôle font foi et sont disponibles en mairie.</p>`;
+  return h;
 }
 function syntheseImpression(){
   const d = S.fbData, site = d.site, id = site.id, b = bornesBat();
@@ -2358,6 +2417,7 @@ function vueRenouvellement(){
     <p class="aide">Signaux examinés : âge proche ou au-delà de la durée de vie (${P.annees_avant_terme} ans avant le terme), état mauvais ou hors service,
     au moins ${P.pannes_seuil} incidents en ${P.pannes_mois} mois (incidents rattachés à l'équipement uniquement), entretien sur ${P.couts_annees} ans au moins égal à ${Math.round(P.ratio_couts * 100)} % du coût de remplacement.
     Il ne s'agit pas d'une date de remplacement : c'est une aide pour décider quoi examiner.</p>`;
+  if (peutSaisir()) h += `<button class="principal" style="width:100%;margin:0 0 10px" onclick="App.saisieCycleVie('${esc(S.fbu.site || '')}')">Saisie rapide du cycle de vie (${l.length} équipement${l.length > 1 ? 's' : ''})</button>`;
   const bloc = (titre, items) => items.length ? `<h2>${titre} (${items.length})</h2><div class="liste">${items.map(a => `<div class="bloc" style="margin:0;cursor:pointer" onclick="App.fiche('${a.e.id}')">
       <b>${esc(a.e.nom)}</b> <span class="sous">${esc(S.sites.find(x => x.id === a.e.site_id)?.nom || '')}</span>
       <p class="sous" style="margin:2px 0">Âge : ${a.age != null ? `${a.age} ans` : 'inconnu'} · État : ${ETATS[a.c.etat || 'non_evalue']}${a.pannes != null ? ` · ${a.pannes} incident${a.pannes > 1 ? 's' : ''} en ${P.pannes_mois} mois` : ''}</p>
@@ -4924,9 +4984,9 @@ const App = {
     if (S.fb.du && S.fb.au && S.fb.au < S.fb.du) toast('La date de fin précède la date de début.', true);
     rendreBat();
   },
-  imprimerBatiment(){
+  imprimerBatiment(mode){
     if (!S.fbData) return;
-    $('#impression').innerHTML = syntheseImpression();
+    $('#impression').innerHTML = mode === 'synthese' ? ficheSyntheseBat(S.fbData.liensInc || {}) : syntheseImpression();
     document.body.classList.add('imprime');
     const fin = () => { document.body.classList.remove('imprime'); $('#impression').innerHTML = ''; window.removeEventListener('afterprint', fin); };
     window.addEventListener('afterprint', fin);
@@ -5922,6 +5982,70 @@ const App = {
       await q(sb.from('equipement_cycle_vie').upsert(d, { onConflict:'equipement_id' }));
       toast('Cycle de vie enregistré'); await chargerBudget(); App.fiche(eqId);
     } catch (err){ toast(traduire(err), true); b.disabled = false; }
+  },
+  /* Saisie rapide du cycle de vie : un tableau pour tous les équipements en service */
+  saisieCycleVie(siteId = ''){
+    if (!peutSaisir()) return toast('Action non autorisée pour votre rôle.', true);
+    if (S.budgetAbsent) return toast("Le module cycle de vie n'est pas installé dans la base.", true);
+    const fin = voitFinances(), nomSite = e => S.sites.find(x => x.id === e.site_id)?.nom || '';
+    const eqs = S.equipements.filter(e => e.actif && siteActif(S.sites.find(x => x.id === e.site_id)) && (!siteId || e.site_id === siteId))
+      .sort((a, b) => nomSite(a).localeCompare(nomSite(b), 'fr') || a.nom.localeCompare(b.nom, 'fr'));
+    const opt = (v, l, sel) => `<option value="${esc(v)}" ${String(v) === String(sel ?? '') ? 'selected' : ''}>${esc(l)}</option>`;
+    const m = v => v == null ? '' : String(v).replace('.', ',');
+    const sitesL = S.sites.filter(siteActif);
+    let h = tete('Saisie rapide du cycle de vie') + `
+      <label>Bâtiment<select onchange="App.saisieCycleVie(this.value)">${opt('', 'Tous les bâtiments', siteId)}${sitesL.map(x => opt(x.id, x.nom, siteId)).join('')}</select></label>
+      <p class="aide">Remplissez ce que vous connaissez et laissez vide le reste. Seules les lignes modifiées (surlignées) sont enregistrées.
+      Changer de bâtiment efface les saisies non enregistrées. La source, la date exacte et le commentaire se complètent dans la fiche de chaque équipement.</p>`;
+    if (!eqs.length) return ouvrir(h + '<p class="vide">Aucun équipement en service.</p>');
+    h += `<form onsubmit="App.enregistrerSaisieCV(event,'${esc(siteId)}')" oninput="App.marquerCV(event)" onchange="App.marquerCV(event)"><div class="saisie-cv"><table>
+      <thead><tr><th>Équipement</th><th>Mise en service (année)</th><th>Durée de vie (ans)</th><th>État</th>${fin ? '<th>Remplacement TTC (€)</th>' : ''}</tr></thead><tbody>
+      ${eqs.map(e => { const c = S.budget.cycle[e.id] || {}, cout = S.budget.couts[e.id] || {}, dateEx = !!c.date_mise_en_service;
+        return `<tr data-id="${e.id}"><td><b>${esc(e.nom)}</b>${siteId ? '' : `<br><small class="aide">${esc(nomSite(e))}</small>`}</td>
+          <td class="n"><input name="an" inputmode="numeric" maxlength="4" placeholder="ex. 2012" value="${esc(c.annee_mise_en_service ?? '')}" data-orig="${esc(c.annee_mise_en_service ?? '')}" ${dateEx ? `disabled title="Date exacte (${fmt(c.date_mise_en_service)}) renseignée dans la fiche"` : ''} aria-label="Année de mise en service : ${esc(e.nom)}"></td>
+          <td class="n"><input name="duree" inputmode="numeric" maxlength="3" value="${esc(c.duree_vie_ans ?? '')}" data-orig="${esc(c.duree_vie_ans ?? '')}" aria-label="Durée de vie : ${esc(e.nom)}"></td>
+          <td class="e"><select name="etat" data-orig="${esc(c.etat || 'non_evalue')}" aria-label="État : ${esc(e.nom)}">${Object.entries(ETATS).map(([k, v]) => opt(k, v, c.etat || 'non_evalue')).join('')}</select></td>
+          ${fin ? `<td class="m"><input name="ttc" inputmode="decimal" value="${esc(m(cout.cout_remplacement_ttc))}" data-orig="${esc(m(cout.cout_remplacement_ttc))}" aria-label="Coût de remplacement TTC : ${esc(e.nom)}"></td>` : ''}</tr>`; }).join('')}
+      </tbody></table></div>
+      <p class="aide">Un état modifié est daté d'aujourd'hui ; un coût modifié aussi. Le montant HT éventuel saisi dans la fiche est conservé.</p>
+      <div class="boutons"><button class="principal" type="submit">Enregistrer les modifications</button></div></form>`;
+    ouvrir(h);
+  },
+  marquerCV(ev){
+    const tr = ev.target.closest?.('tr[data-id]'); if (!tr) return;
+    tr.classList.toggle('modif', [...tr.querySelectorAll('input,select')].some(x => !x.disabled && x.value.trim() !== (x.dataset.orig ?? '')));
+  },
+  async enregistrerSaisieCV(ev, siteId = ''){
+    ev.preventDefault();
+    const b = ev.target.querySelector('button[type=submit]'), an = new Date().getFullYear(), fin = voitFinances(), auj = aujourdhui();
+    const lignes = [], erreurs = [];
+    for (const tr of ev.target.querySelectorAll('tr.modif[data-id]')){
+      const id = tr.dataset.id, e = S.equipements.find(x => x.id === id), c = S.budget.cycle[id] || {}, cout = S.budget.couts[id] || {};
+      const v = n => tr.querySelector(`[name=${n}]`);
+      const entier = (el, min, max, lib) => { if (el.disabled) return c.annee_mise_en_service ?? null; const t = el.value.trim(); if (!t) return null; const n = Number(t);
+        if (!Number.isInteger(n) || n < min || n > max) throw new Error(`${e?.nom} : ${lib} invalide (${min} à ${max}).`); return n; };
+      try {
+        const etat = v('etat').value;
+        const d = { equipement_id:id, annee_mise_en_service:entier(v('an'), 1900, an, 'année'), duree_vie_ans:entier(v('duree'), 1, 100, 'durée de vie'),
+          etat, etat_date:etat !== (c.etat || 'non_evalue') ? (etat === 'non_evalue' ? null : auj) : (c.etat_date ?? null) };
+        if (fin){
+          const t = v('ttc'), chg = t.value.trim() !== (t.dataset.orig ?? '');
+          d.cout_remplacement_ttc = lireMontant(t.value, `${e?.nom} : remplacement TTC`);
+          if (d.cout_remplacement_ttc != null && cout.cout_remplacement_ht != null && d.cout_remplacement_ttc < cout.cout_remplacement_ht)
+            throw new Error(`${e?.nom} : le TTC est inférieur au HT déjà saisi (${euros(cout.cout_remplacement_ht)}).`);
+          d.cout_date = chg ? (d.cout_remplacement_ttc == null ? null : auj) : (cout.cout_date ?? null);
+        }
+        lignes.push(d);
+      } catch (err){ erreurs.push(err.message); }
+    }
+    if (erreurs.length) return toast(erreurs.slice(0, 2).join(' ') + (erreurs.length > 2 ? ` (+${erreurs.length - 2})` : ''), true);
+    if (!lignes.length) return toast('Aucune modification à enregistrer.');
+    b.disabled = true; b.textContent = 'Enregistrement…';
+    try {
+      await q(sb.from('equipement_cycle_vie').upsert(lignes, { onConflict:'equipement_id' }));
+      toast(`Cycle de vie enregistré pour ${lignes.length} équipement${lignes.length > 1 ? 's' : ''}`);
+      await chargerBudget(); fermer(); rendre();
+    } catch (err){ toast(traduire(err), true); b.disabled = false; b.textContent = 'Enregistrer les modifications'; }
   },
   exportBudgetCSV(){
     const ops = filtrerOps(true), ex = exercicesConnus().concat(['nr']);
